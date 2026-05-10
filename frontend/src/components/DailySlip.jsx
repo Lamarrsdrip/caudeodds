@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Copy, ExternalLink, CheckCircle2, AlertCircle } from "lucide-react";
+import { Copy, ExternalLink, CheckCircle2, AlertCircle, Lock, Calendar, Clock, MapPin } from "lucide-react";
 import { toast } from "sonner";
 
 function StatusBadge({ count, status }) {
@@ -14,12 +14,31 @@ function StatusBadge({ count, status }) {
   return <span className={`co-tag ${cls}`}>{count} {label}</span>;
 }
 
+function formatKickoff(iso) {
+  if (!iso) return { day: "", time: "" };
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+    const matchDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    let dayLabel;
+    if (matchDay.getTime() === today.getTime()) dayLabel = "Today";
+    else if (matchDay.getTime() === tomorrow.getTime()) dayLabel = "Tomorrow";
+    else dayLabel = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+    return { day: dayLabel, time };
+  } catch {
+    return { day: "", time: "" };
+  }
+}
+
 export default function DailySlip({ slip, locked, onSubscribe }) {
   const [copied, setCopied] = useState(false);
   if (!slip) {
     return (
       <div className="co-card p-12 text-center bg-grid">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mb-2">EMPTY SLATE</div>
+        <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mb-2">// EMPTY SLATE</div>
         <p className="font-heading text-lg text-[#a3a3a3]">No slip published yet today. Check back soon.</p>
       </div>
     );
@@ -63,7 +82,7 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
           <div className="px-3 py-1 bg-[#00ff66] text-[#050505] font-mono text-[10px] uppercase tracking-widest font-bold">
             SportyBet Code
           </div>
-          <code className="font-mono text-2xl font-bold tracking-widest" data-testid="sportybet-code">{slip.sportybet_code}</code>
+          <code className="font-mono text-3xl font-black tracking-[0.2em]" data-testid="sportybet-code">{slip.sportybet_code}</code>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={copyCode} data-testid="copy-code-btn" className="border border-[#262626] hover:border-[#525252] hover:bg-[#1a1a1a] font-mono text-[11px] uppercase tracking-widest px-4 py-2 inline-flex items-center gap-2">
@@ -88,30 +107,54 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
 
       {/* Legs */}
       <div className="co-card divide-y divide-[#1a1a1a]" data-testid="slip-legs">
-        {slip.legs.map((l, i) => (
-          <div key={i} className="p-5 flex items-start gap-4">
-            <div className="font-mono text-2xl text-[#525252] w-10 shrink-0">{String(i + 1).padStart(2, "0")}</div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="co-tag">{l.sport.toUpperCase()}</span>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">{l.league}</span>
-              </div>
-              <div className="font-heading font-bold text-base">{l.match}</div>
-              <div className="text-sm text-[#a3a3a3] mt-1">{l.selection_label}</div>
-              {l.reasoning && (
-                <p className="text-xs text-[#525252] mt-2 leading-relaxed line-clamp-2">{l.reasoning}</p>
-              )}
-            </div>
-            <div className="text-right shrink-0">
-              <div className="font-mono text-3xl font-bold">{l.odds?.toFixed(2)}</div>
-              {l.confidence > 0 && (
-                <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mt-1">
-                  CONF {l.confidence.toFixed(0)}% · EDGE {l.edge_pct?.toFixed(1)}%
+        {slip.legs.map((l, i) => {
+          const { day, time } = formatKickoff(l.kickoff);
+          const isLocked = locked || l.market === "LOCKED";
+          return (
+            <div key={i} className="p-5 flex items-start gap-4">
+              <div className="font-mono text-2xl text-[#525252] w-10 shrink-0">{String(i + 1).padStart(2, "0")}</div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  <span className="co-tag">{l.sport.toUpperCase()}</span>
+                  {l.country_code && (
+                    <span className="co-tag inline-flex items-center gap-1">
+                      <MapPin className="w-3 h-3"/>{l.country_code}
+                    </span>
+                  )}
+                  <span className="font-mono text-[10px] uppercase tracking-widest text-[#a3a3a3]">{l.league}</span>
+                  {(day || time) && (
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-[#525252] inline-flex items-center gap-2 ml-auto">
+                      <Calendar className="w-3 h-3"/>{day}
+                      <Clock className="w-3 h-3 ml-1"/>{time}
+                    </span>
+                  )}
                 </div>
-              )}
+                {isLocked ? (
+                  <div className="flex items-center gap-2 mt-1 text-[#525252]">
+                    <Lock className="w-4 h-4"/>
+                    <span className="font-heading font-bold text-base">Subscribe to unlock</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="font-heading font-bold text-base">{l.match}</div>
+                    <div className="text-sm text-[#a3a3a3] mt-1">{l.selection_label}</div>
+                    {l.reasoning && (
+                      <p className="text-xs text-[#525252] mt-2 leading-relaxed line-clamp-2">{l.reasoning}</p>
+                    )}
+                  </>
+                )}
+              </div>
+              <div className="text-right shrink-0">
+                <div className="font-mono text-3xl font-bold">{l.odds?.toFixed(2)}</div>
+                {!isLocked && l.confidence > 0 && (
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mt-1">
+                    CONF {l.confidence.toFixed(0)}% · EDGE {l.edge_pct?.toFixed(1)}%
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Summary */}

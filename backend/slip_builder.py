@@ -1,7 +1,7 @@
-"""ClaudeOdd combined slip builder.
+"""ClaudeOdds combined slip builder.
 
 Goal: combine 3-5 highest-confidence games such that the combined (multiplied)
-decimal odds land in the user-friendly [2.0, 5.0] range. Caps at 5 odds.
+decimal odds land in the user-friendly [2.0, 5.0] range. Cap at 5.0 odds.
 """
 from __future__ import annotations
 
@@ -15,36 +15,52 @@ TARGET_MIN_ODDS = 2.0
 TARGET_MAX_ODDS = 5.0
 MIN_LEGS = 3
 MAX_LEGS = 5
-HARD_MIN_LEGS = 2  # if we truly cannot reach 3, fall back
+HARD_MIN_LEGS = 2
+
+LEAGUE_COUNTRY = {
+    "Premier League": ("England", "ENG"),
+    "La Liga": ("Spain", "ESP"),
+    "Serie A": ("Italy", "ITA"),
+    "Bundesliga": ("Germany", "GER"),
+    "Ligue 1": ("France", "FRA"),
+    "NBA": ("USA", "USA"),
+    "EuroLeague": ("Europe", "EUR"),
+}
+
+
+def league_country(league: str) -> tuple[str, str]:
+    return LEAGUE_COUNTRY.get(league, ("Intl", "INT"))
 
 
 def make_sportybet_code(date_str: str, picks: List) -> str:
+    """SportyBet-style booking code: 5-7 char uppercase alphanumeric, no dashes.
+    Examples seen on sportybet.com: STQLE2, PW5888, B3K9XY.
+    """
     seed = date_str + "|" + "|".join(f"{p.match}-{p.market}" for p in picks)
     h = hashlib.sha256(seed.encode()).hexdigest().upper()
-    alnum = "".join(c for c in h if c.isalnum())
-    return f"SB-{alnum[:6]}-{alnum[6:10]}"
+    # Use a base32-friendly alphabet (no confusing 0/O, 1/I)
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    out = ""
+    n = int(h[:16], 16)
+    while len(out) < 6:
+        out += alphabet[n % len(alphabet)]
+        n //= len(alphabet)
+    return out
 
 
 def _select_picks(picks: List) -> List:
-    """Greedy pack: take highest-confidence picks first. Combined odds must stay
-    within [2.0, 5.0]. Legs preferred 3-5, minimum 2.
-
-    Strategy: prefer short-odds favourites first (better cap fit AND higher
-    win probability — matches user expectation of 'people to win always')."""
     if not picks:
         return []
-    # Score = confidence × edge / odds-penalty (favours shorter odds when conf is similar)
     sorted_picks = sorted(
         picks,
         key=lambda p: (
             p.confidence * 0.6
             + (p.expected_value * 100) * 0.25
             + p.agreement * 0.15
-            - max(0.0, (p.odds - 1.5) * 5)  # penalise long odds
+            - max(0.0, (p.odds - 1.5) * 5)
         ),
         reverse=True,
     )
-
     selected: List = []
     combined = 1.0
     for p in sorted_picks:
@@ -61,7 +77,6 @@ def _select_picks(picks: List) -> List:
             break
 
     if combined < TARGET_MIN_ODDS:
-        # Add longer-odds picks to reach 2.0
         remaining = [p for p in sorted_picks if p not in selected]
         remaining.sort(key=lambda p: p.odds, reverse=True)
         for p in remaining:
@@ -75,10 +90,8 @@ def _select_picks(picks: List) -> List:
             if combined >= TARGET_MIN_ODDS:
                 break
 
-    # Fallback: if no valid combo at all, ship the SINGLE highest-confidence pick
     if not selected and picks:
-        best = max(picks, key=lambda p: p.confidence)
-        selected = [best]
+        selected = [max(picks, key=lambda p: p.confidence)]
 
     return selected
 
@@ -96,10 +109,12 @@ def build_slip(date_str: str, all_picks: List, sportybet_url: str = "https://www
     confidence_avg = 0.0
 
     for p in picks:
+        country, country_code = league_country(p.league)
         legs.append(SlipLeg(
-            match=p.match, league=p.league, sport=p.sport, market=p.market,
-            selection_label=p.selection_label, odds=p.odds, confidence=p.confidence,
-            edge_pct=p.edge_pct, reasoning=(p.reasoning or "")[:240],
+            match=p.match, league=p.league, country=country, country_code=country_code,
+            sport=p.sport, market=p.market, selection_label=p.selection_label,
+            odds=p.odds, confidence=p.confidence, edge_pct=p.edge_pct,
+            kickoff=p.kickoff, reasoning=(p.reasoning or "")[:240],
         ))
         combined_odds *= float(p.odds)
         try:
@@ -131,9 +146,8 @@ def build_slip(date_str: str, all_picks: List, sportybet_url: str = "https://www
         combined_odds=round(combined_odds, 2),
         combined_confidence=round(confidence_avg, 1),
         expected_value=round(expected_value, 4),
-        risk_level=risk,  # type: ignore[arg-type]
+        risk_level=risk,
         sportybet_code=make_sportybet_code(date_str, picks),
         sportybet_url=sportybet_url,
-        summary=summary,
-        locked=False,
+        summary=summary, locked=False,
     )

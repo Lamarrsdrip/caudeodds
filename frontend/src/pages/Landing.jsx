@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
+import EmrizFooter from "@/components/EmrizFooter";
 import { api } from "@/lib/api";
 import { Lock, TrendingUp, Shield, Zap, BarChart3, Globe } from "lucide-react";
 
@@ -29,7 +30,7 @@ export default function Landing() {
             DAILY.
           </h1>
           <p className="text-lg text-[#a3a3a3] max-w-2xl leading-relaxed mb-10">
-            ClaudeOdd combines Claude and GPT into one quant brain. Every day we hand-pick 3–5
+            ClaudeOdds combines Claude and GPT into one quant brain. Every day we hand-pick 3–5
             highest-confidence football and basketball games and pack them into one combined slip
             with total odds between <span className="text-[#f5f5f5] font-bold">2.00 and 5.00</span>.
             Easy to play. Easy to copy onto SportyBet. Designed to win.
@@ -126,7 +127,7 @@ export default function Landing() {
         <div className="max-w-[1000px] mx-auto px-6 py-20 text-center">
           <h2 className="font-heading font-black text-3xl tracking-tight mb-6">RESPONSIBLE BY DESIGN</h2>
           <p className="text-base text-[#a3a3a3] mb-8 leading-relaxed">
-            CLAUDEODD is for adults 18+. Nothing here is financial or betting advice. Past performance doesn't guarantee future results.
+            ClaudeOdds is for adults 18+. Nothing here is financial or betting advice. Past performance doesn't guarantee future results.
             We optimise for long-term discipline, not viral win-rate marketing.
           </p>
           <Link to="/register" data-testid="bottom-cta" className="inline-block bg-[#00ff66] text-[#050505] font-mono uppercase tracking-widest text-sm px-10 py-4">
@@ -135,8 +136,8 @@ export default function Landing() {
         </div>
       </section>
 
-      <footer className="px-6 py-8 text-center font-mono text-[10px] uppercase tracking-widest text-[#525252]">
-        © 2026 CLAUDEODD · 18+ only · Bet responsibly · Not affiliated with SportyBet
+      <footer>
+        <EmrizFooter />
       </footer>
     </div>
   );

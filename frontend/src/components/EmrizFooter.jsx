@@ -4,7 +4,7 @@ export default function EmrizFooter() {
   return (
     <footer className="px-6 py-10 text-center space-y-3 border-t border-[#262626] mt-12" data-testid="emriz-footer">
       <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">
-        © 2026 ClaudeOdd · 18+ only · Bet responsibly · Not affiliated with SportyBet
+        © 2026 ClaudeOdds · 18+ only · Bet responsibly · Not affiliated with SportyBet
       </div>
       <a
         href="https://twitter.com/emriz_eth"

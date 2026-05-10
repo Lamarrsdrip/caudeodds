@@ -40,14 +40,18 @@ Backend (FastAPI + Motor + emergentintegrations + Flutterwave + bcrypt + PyJWT)
 **Admin:** stats, users (list, grant 30d, suspend), payments (list, approve, reject), predictions (list, settle), config (GET masked secrets, POST preserves masked), rejected
 **Public:** /public/config, /
 
-## What's Been Implemented (Phase 2.1 — 2026-02-10)
-✅ **Brand renamed to "ClaudeOdd"** (proper-cased everywhere)
-✅ **Footer: "Made by emriz.eth"** glowing pulsing badge on every page (Landing, Login, Register, Pricing, Dashboard, Subscription)
-✅ **New slip algorithm** — combined ODDS land in [2.00, 5.00] (not "2-5 legs"). Greedy packs 3–5 highest-confidence games while respecting the 5.0 hard cap. Falls back to 2 legs when math forces it (correct behaviour: today's 4 picks have minimum-3 combo @ 14.10 — too high; ships 2 @ 4.62)
-✅ **Football + Basketball mixed automatically** in single slip (no sport tabs in user UI)
-✅ **Friendlier hero copy** — "WIN MORE. BET SMARTER. DAILY." + clear "3–5 games · 2.00–5.00 combined odds"
-✅ **Looser ensemble thresholds** (min_conf 60, min_ev 0.02, min_agreement 55) + 65% value-bias rate so more picks pass while staying disciplined
-✅ **Bankroll/Kelly fully removed** from user UI (admin-only via Predictions tab)
+## What's Been Implemented (Phase 2.2 — 2026-02-10)
+✅ **Brand renamed to "ClaudeOdds"** (with the s) — header, copy, manifest, OG tags, page titles, all UI strings, backend logger + FastAPI title
+✅ **Real SportyBet code format** — 6-char uppercase alphanumeric, no dashes (e.g. `SDW24H`, `B3K9XY`) using collision-safe alphabet (no 0/O/1/I)
+✅ **Match details on every leg** — country code badge (USA/ITA/ENG/...), league name, kickoff day (Today/Tomorrow/Sat) + 24-hour time, with Calendar/Clock/MapPin icons
+✅ **3-agent research pipeline** — Anthropic Skills-style: Claude RESEARCH agent extracts evidence-scored facts → GPT QUANT computes EV from research → Claude TACTICAL independently picks → triple-gate consensus (side-direction + research direction + EV/conf)
+✅ **Short-favourite preference** — slip builder penalises long odds in selection score so picks lean to safer favourites first
+✅ **Pre-filter (LOW_RESEARCH)** — research_quality_score < 35 → fixture rejected before quant/tactical even run (saves cost, enforces evidence-first)
+✅ **Removed all Emergent branding** from index.html (no badge, no PostHog, no emergent-main.js)
+✅ **PWA support** — manifest.json + custom icons (192/512/180/32) + apple-touch-icon meta tags + theme-color + viewport-fit=cover
+✅ **Install prompt** — Android `beforeinstallprompt` one-tap banner; iOS pill → "Add to Home Screen" instructions modal
+✅ **Deployment-ready** — deployment_agent passes (compilation OK, env files OK, no hardcoded secrets, CORS open, supervisor configs valid)
+✅ **Bug fixes** — InstallPrompt iOS pill→modal flow (was unreachable), broken duplicate CORS middleware in server.py, EmrizFooter applied consistently across all pages, removed unused old Header.jsx
 
 ## What's Been Implemented (Phase 2 — 2026-02-10)
 ✅ **Auth + 18+ age gate** — bcrypt + JWT (7-day) + Terms acceptance + DOB

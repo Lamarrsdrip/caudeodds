@@ -123,12 +123,15 @@ class SlipLeg(BaseModel):
     model_config = ConfigDict(extra="ignore")
     match: str
     league: str
+    country: str = ""
+    country_code: str = ""
     sport: str
     market: str
     selection_label: str
     odds: float
     confidence: float
     edge_pct: float
+    kickoff: str = ""  # ISO datetime
     reasoning: str
 
 

@@ -65,10 +65,10 @@ async def init_flutterwave_payment(
         "redirect_url": redirect_url,
         "customer": {
             "email": user["email"],
-            "name": user.get("name", "CLAUDEODD User"),
+            "name": user.get("name", "ClaudeOdds User"),
         },
         "customizations": {
-            "title": "CLAUDEODD VIP",
+            "title": "ClaudeOdds VIP",
             "description": "Monthly VIP Slip Subscription",
         },
         "meta": {"user_id": user["id"]},

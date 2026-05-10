@@ -91,7 +91,7 @@ async def on_startup():
     await picks_col.create_index([("date", -1), ("created_at", -1)])
     await rej_col.create_index("date")
     await seed_admin(db)
-    logger.info("CLAUDEODD startup complete")
+    logger.info("ClaudeOdds startup complete")
 
 
 @app.on_event("shutdown")
@@ -106,7 +106,7 @@ api = APIRouter(prefix="/api")
 
 @api.get("/")
 async def root():
-    return {"app": "CLAUDEODD", "status": "ok", "version": "2.0"}
+    return {"app": "ClaudeOdds", "status": "ok", "version": "2.1"}
 
 
 @api.get("/public/config")
@@ -131,7 +131,7 @@ async def public_config():
 @api.post("/auth/register", response_model=TokenResponse)
 async def auth_register(payload: RegisterPayload):
     if not payload.age_18_plus:
-        raise HTTPException(status_code=400, detail="You must be 18+ to use CLAUDEODD")
+        raise HTTPException(status_code=400, detail="You must be 18+ to use ClaudeOdds")
     if not payload.accept_terms:
         raise HTTPException(status_code=400, detail="You must accept the Terms & Privacy Policy")
 
@@ -256,11 +256,13 @@ async def slip_today(request: Request):
     if locked:
         teaser = slip.model_dump()
         teaser["legs"] = [{
-            "match": "🔒 Locked", "league": leg.league, "sport": leg.sport,
-            "market": "🔒", "selection_label": "Subscribe to unlock",
-            "odds": leg.odds, "confidence": 0, "edge_pct": 0, "reasoning": "",
+            "match": "Locked", "league": leg.league, "country": leg.country,
+            "country_code": leg.country_code, "sport": leg.sport,
+            "market": "LOCKED", "selection_label": "Subscribe to unlock",
+            "odds": leg.odds, "confidence": 0, "edge_pct": 0,
+            "kickoff": leg.kickoff, "reasoning": "",
         } for leg in slip.legs]
-        teaser["sportybet_code"] = "🔒 SB-XXXXXX-XXXX"
+        teaser["sportybet_code"] = "LOCKED"
         teaser["summary"] = (
             f"{slip.leg_count}-leg slip ready. Subscribe to unlock the picks, the SportyBet booking code, "
             f"and the full AI ensemble reasoning."
@@ -557,12 +559,6 @@ app.include_router(api)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=False,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-Middleware,
     allow_credentials=False,
     allow_origins=["*"],
     allow_methods=["*"],
