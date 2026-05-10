@@ -100,17 +100,20 @@ def build_slip(date_str: str, all_picks: List, sportybet_url: str = "https://www
 
     for p in picks:
         country, country_code = league_country(p.league)
-        legs.append(SlipLeg(
-            match=p.match, league=p.league, country=country, country_code=country_code,
-            sport=p.sport, market=p.market, selection_label=p.selection_label,
-            odds=p.odds, confidence=p.confidence, edge_pct=p.edge_pct,
-            kickoff=p.kickoff, reasoning=(p.reasoning or "")[:240],
-        ))
-        combined_odds *= float(p.odds)
         try:
             fp = float(p.quant_view.fair_prob)
         except Exception:
             fp = 1.0 / float(p.odds)
+        leg_ev = round(fp * float(p.odds) - 1.0, 4)
+        book_imp = round(1.0 / float(p.odds), 4)
+        legs.append(SlipLeg(
+            match=p.match, league=p.league, country=country, country_code=country_code,
+            sport=p.sport, market=p.market, selection_label=p.selection_label,
+            odds=p.odds, confidence=p.confidence, edge_pct=p.edge_pct,
+            expected_value=leg_ev, book_implied_prob=book_imp,
+            kickoff=p.kickoff, reasoning=(p.reasoning or "")[:240],
+        ))
+        combined_odds *= float(p.odds)
         fair_prob *= fp
         confidence_avg += p.confidence
 

@@ -159,11 +159,11 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
                   <>
                     <div className="font-heading font-bold text-base sm:text-lg leading-tight">{l.match}</div>
                     <div className="text-sm text-[#a3a3a3] mt-1">{l.selection_label}</div>
-                    <div className="flex items-center gap-3 mt-2">
+                    <div className="flex items-center gap-3 mt-2 flex-wrap">
                       <span className="font-mono text-2xl sm:text-3xl font-bold sm:hidden">{l.odds?.toFixed(2)}</span>
                       {l.confidence > 0 && (
                         <span className="font-mono text-[10px] uppercase tracking-widest text-[#525252] sm:hidden">
-                          CONF {l.confidence.toFixed(0)}% · EDGE {l.edge_pct?.toFixed(1)}%
+                          CONF {l.confidence.toFixed(0)}% · EDGE {l.edge_pct?.toFixed(1)}% · EV {l.expected_value > 0 ? "+" : ""}{(l.expected_value * 100).toFixed(1)}%
                         </span>
                       )}
                     </div>
@@ -177,7 +177,7 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
                 <div className="font-mono text-3xl font-bold">{l.odds?.toFixed(2)}</div>
                 {!isLocked && l.confidence > 0 && (
                   <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mt-1">
-                    CONF {l.confidence.toFixed(0)}% · EDGE {l.edge_pct?.toFixed(1)}%
+                    CONF {l.confidence.toFixed(0)}% · EDGE {l.edge_pct?.toFixed(1)}% · EV {l.expected_value > 0 ? "+" : ""}{(l.expected_value * 100).toFixed(1)}%
                   </div>
                 )}
               </div>

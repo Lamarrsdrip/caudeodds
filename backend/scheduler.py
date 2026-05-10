@@ -63,16 +63,20 @@ async def _run_daily_pipeline(db):
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "picks": len(picks), "rejected": len(rejections), "fixtures_analyzed": total,
         }})
-        # Notify admin via push that the slip is ready and needs a SportyBet code
+        # Notify admin via push that the slip is ready and needs a SportyBet code.
+        # We broadcast to all admin push subscriptions (filter by user role isn't
+        # available in the subscriptions collection, so we look up admin user IDs).
         try:
             from push_service import broadcast
-            await broadcast(
-                db,
-                title="ClaudeOdds — Today's slip is ready",
-                body=f"AI ensemble produced {len(picks)} picks. Open the admin panel to publish the SportyBet code.",
-                url="/admin/predictions",
-                user_filter={"user_id": "admin"},  # only admin, no broad alert yet (no code published)
-            )
+            admin_ids = [u["id"] async for u in db.users.find({"role": "admin"}, {"_id": 0, "id": 1})]
+            if admin_ids:
+                await broadcast(
+                    db,
+                    title="ClaudeOdds — Today's slip is ready",
+                    body=f"AI ensemble produced {len(picks)} picks. Open admin to publish the SportyBet code.",
+                    url="/admin/predictions",
+                    user_filter={"user_id": {"$in": admin_ids}},
+                )
         except Exception as e:
             logger.warning("Admin push failed: %s", e)
         logger.info("Daily cron pipeline complete: picks=%d total=%d", len(picks), total)
@@ -89,8 +93,15 @@ async def configure_scheduler(db) -> dict:
     """Read admin config and (re)schedule the daily job."""
     global _scheduler
     cfg = await db.admin_config.find_one({"_id": "main"}, {"_id": 0}) or {}
-    hour = int(cfg.get("cron_hour_utc", 8))
-    minute = int(cfg.get("cron_minute_utc", 0))
+    # Defensive clamp — protect the scheduler from any legacy/corrupt values
+    try:
+        hour = max(0, min(23, int(cfg.get("cron_hour_utc", 8))))
+    except (TypeError, ValueError):
+        hour = 8
+    try:
+        minute = max(0, min(59, int(cfg.get("cron_minute_utc", 0))))
+    except (TypeError, ValueError):
+        minute = 0
     enabled = bool(cfg.get("cron_enabled", True))
 
     if _scheduler is None:

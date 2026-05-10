@@ -122,8 +122,8 @@ class AdminConfig(BaseModel):
     odds_api_key: str = ""  # if blank, server uses THE_ODDS_API_KEY from .env
     # Daily cron
     cron_enabled: bool = True
-    cron_hour_utc: int = 8  # 08:00 UTC = 09:00 Lagos
-    cron_minute_utc: int = 0
+    cron_hour_utc: int = Field(default=8, ge=0, le=23)  # 08:00 UTC = 09:00 Lagos
+    cron_minute_utc: int = Field(default=0, ge=0, le=59)
     # Web Push
     push_enabled: bool = True
     push_subject_email: str = "admin@claudeodd.com"
@@ -142,6 +142,8 @@ class SlipLeg(BaseModel):
     odds: float
     confidence: float
     edge_pct: float
+    expected_value: float = 0.0  # calibrated, per-leg
+    book_implied_prob: float = 0.0  # 1/odds, exposed for transparency
     kickoff: str = ""  # ISO datetime
     reasoning: str
 

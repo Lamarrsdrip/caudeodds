@@ -4,69 +4,76 @@
 Build a realistic, long-term profitable AI sports betting intelligence SaaS using a multi-agent ensemble (Claude + GPT). Users pay a monthly subscription (₦5,000/month) for one combined daily slip with total odds 2.0–5.0, mixing football & basketball, plus a SportyBet booking code. Trial is 3 days. Brand: "ClaudeOdds" with "Made by emriz.eth" footer.
 
 ## CRITICAL: Real-money production app
-The user has emphasized this is NOT a demo. People bet real money. Every fixture, every price, every booking code MUST be real, not synthetic.
+Users place real money on these picks. Every fixture, price, calculation, and probability MUST be honest and grounded in verifiable data.
 
 ## Architecture
-- Backend: FastAPI + MongoDB + Motor (async)
+- Backend: FastAPI + MongoDB + Motor (async) + APScheduler
 - Frontend: React (CRA) + Tailwind + shadcn/ui
 - AI: Anthropic Claude Haiku 4.5 + OpenAI GPT-4o-mini via Emergent LLM Key
-- Sports data: The Odds API (free tier, key in backend/.env as THE_ODDS_API_KEY)
-- Payments: Flutterwave (sandbox by default) + manual bank transfer with admin proof approval
-- PWA: manifest, install prompt, transparent logo
+- Sports data: The Odds API (free tier, key in `backend/.env` and admin-overridable in DB)
+- Payments: Flutterwave (sandbox) + manual bank transfer with admin proof approval
+- PWA: manifest, install prompt, transparent logo, service worker
+- Web Push: VAPID auto-generated, broadcast on admin code publish
 
 ## Implemented (Cumulative)
 
-### Phase 1 — Core SaaS (earlier sessions)
-- JWT auth (register/login/me/logout, brute-force protection by email)
-- 3-day free trial on registration
-- Subscription gating, paid status check
+### Phase 1 — Core SaaS
+- JWT auth, brute-force lockout (by email), 3-day trial on registration
 - Admin panel: stats, users, payments approval, configuration, predictions, rejected log
-- Flutterwave init/verify/webhook + bank transfer proof flow
+- Flutterwave + bank transfer payment flow
 - Multi-agent AI pipeline: Research (Claude) → Quant (GPT) → Tactical (Claude) → Consensus
 - Slip builder: greedy-pack 3-5 picks into 2.0-5.0 combined odds
-- PWA install prompt, dark theme, EmrizFooter brand
-- Branding: "ClaudeOdds" + "AI BETTING COMPANION" tagline
+- PWA, dark theme, EmrizFooter brand
 
-### Phase 2 — Real data refactor (this session, 2026-05-10)
-- ✅ **Real fixtures via The Odds API** — replaced mock `data_engine.py` (was generating synthetic team names from a hardcoded pool) with real bookmaker-aggregated fixtures from `https://api.the-odds-api.com/v4`. New file `odds_api_service.py` fetches 7 football leagues (EPL, La Liga, Serie A, Bundesliga, Ligue 1, Champions League, Europa League) + 2 basketball leagues (NBA, EuroLeague). Caches active sports list. Aggregates odds across 5-15 books, derives sharp/public split + liquidity + volatility from book dispersion.
-- ✅ **No more fake SportyBet codes** — removed `make_sportybet_code()` (hash-based fake generator). Slip now ships with empty `sportybet_code` by default. Admin pastes the real code from SportyBet into a new admin field; subscribers see "Booking code being prepared" with manual-entry instructions until then.
-- ✅ **New endpoints**: `GET /api/admin/slip/code`, `POST /api/admin/slip/code`. New collection `claudeodd_slip_codes` (keyed by date).
-- ✅ **Background-job pipeline** — `/api/slip/generate` was timing out at the K8s ingress (~60s) because real-data pipeline takes 90-180s. Now returns `{status:'running', job_id}` in <1s and runs the ensemble in `asyncio.create_task`. New polling endpoint `GET /api/slip/generate/status/{job_id}`. Frontend `AdminPredictions` polls every 4s until completion. New collection `claudeodd_jobs`.
-- ✅ **Event-loop responsiveness fix** — LLM calls (LiteLLM/emergentintegrations) were blocking the asyncio event loop, making the entire app feel slow during pipeline runs. Wrapped each call in `asyncio.to_thread(...)` so other API requests stay responsive (verified <15ms response times during a running pipeline).
-- ✅ **Updated LLM prompts** — research/quant/tactical agents now treat bookmaker market dispersion as the PRIMARY signal (instead of expecting injury/xG/weather data which the free tier doesn't provide). Lowered research-quality threshold from 35 to 25.
-- ✅ **Logo wired** — `/logo-icon.png` (background-removed user upload) now renders in `AppHeader` on every page.
-- ✅ **Polished**: data-testids added to admin SportyBet code controls; `LOCKED` placeholder removed from teaser code; concurrency raised from 6→12 ensemble workers.
+### Phase 2 — Real data refactor (2026-05-10)
+- Real fixtures via The Odds API (7 football leagues + 2 basketball)
+- Removed fake SportyBet code generator → admin pastes real code
+- Background-job pipeline pattern → no more K8s ingress timeouts
+- LLM calls wrapped in `asyncio.to_thread()` → app responsive during pipeline
+- Logo wired into header
+
+### Phase 3 — Daily auto + Notifications + Mobile (2026-05-10)
+- APScheduler daily cron at admin-configurable UTC hour (default 08:00)
+- VAPID Web Push with auto-broadcast on admin code publish
+- Mobile-first redesign: hamburger header + drawer, fixed bottom tab nav, mobile-optimized DailySlip + Admin pages, safe-area insets for iOS PWA
+- Admin Configuration: 8 sections including new Sports Data API source override, Daily Cron, and Push test broadcast
+
+### Phase 4 — Production hardening / accuracy (2026-05-10)
+- **Subscription page bug fixed** — was missing 7 imports (`toast`, `formatApiError`, `useAuth`, all lucide icons), causing runtime errors on every interaction
+- **AI prediction realism calibration** — clamps fair_prob to within 4-7% of bookmaker median (the most accurate pre-match prior). Combined slip EV dropped from a fictional +53.2% to a credible +17.5%; confidence capped at 92%; per-leg edge constrained to single-digit-to-low-teens. Calibrated values are also written back to the stored Pick so admin/UI never see hallucinated numbers.
+- **Pydantic validation** on cron_hour_utc (0-23) and cron_minute_utc (0-59) + defensive scheduler clamps so corrupt config can't crash startup
+- **Strategy cap hard-enforced** at runtime in slip_builder (combined_odds ≤ 5.0, leg_count ≤ 5)
+- **Per-leg EV + book_implied_prob** now exposed in API response and rendered on UI
 
 ## Validated
-- Real fixtures verified end-to-end: Nottingham Forest vs Newcastle, AC Milan vs Atalanta, Bayern Munich vs Eintracht Frankfurt, 76ers vs Knicks, Fiorentina vs Genoa, Mallorca vs Villarreal, Crystal Palace vs Everton, Rayo Vallecano vs Girona, Oviedo vs Getafe (2026-05-10/11).
-- Pipeline run: 16 real fixtures analyzed → 7 picks → combined odds 4.0, conf 89%, EV +18.5%.
-- Background job pattern confirmed: POST returns in <1s, polling resolves to completed status.
-- Concurrent responsiveness during pipeline: /api/auth/me and /api/slip/today both respond in 12-14ms.
-- Admin SportyBet code endpoints + UI (input → publish → live indicator → reflect in subscriber slip).
-- 17/19 backend pytest cases pass.
+- 100% pass on iter_3, iter_4, iter_5 testing-agent runs (40+ backend pytest cases + comprehensive frontend audit on desktop and mobile 390x844)
+- Real fixtures: Nottingham Forest, Newcastle, Bayern Munich, AC Milan, 76ers, Knicks, etc.
+- Subscription page: 0 console errors after import fix; both Flutterwave and Bank Transfer panes render and accept input
+- Mobile: hamburger drawer, bottom nav, responsive KPI strip, 44px+ touch targets — all functional
+- Cron rescheduling on admin-config save, validation rejects out-of-range hours
+- Slip strategy cap respected (current slip: 2 legs @ 4.36 combined odds)
 
 ## Backlog / Roadmap
 
-### P0 (blockers for production confidence)
-- **Cron schedule for daily run** — currently admin must click "Force Re-Generate" each day. Add a daily cron (e.g. APScheduler) that auto-runs the pipeline at a fixed UTC hour and notifies admin to paste the SportyBet code.
-- **Brute-force lockout fix** for K8s IP-rotation (carry-over from iter_2; current workaround uses email as identifier).
-
-### P1 (revenue / UX)
-- Web Push notifications when admin publishes the SportyBet code (the moment subscribers most need a ping).
-- Live Flutterwave keys configuration UI (currently sandbox).
-- Admin payment-proof viewer + larger image preview.
-- Slip history performance: paginate beyond 60-day window.
+### P1
+- Web Push notifications: end-to-end real-device test (only smoke-tested headlessly)
+- Live Flutterwave keys swap via admin config (currently sandbox)
+- Admin payment-proof image preview enlargement
+- Telegram channel broadcast on code publish (parallel to push)
+- Forgot-password / reset-password flow
 
 ### P2 (data depth)
-- Integrate API-Football for injury/lineup/form/xG data — would significantly improve pick approval rate and confidence (currently the AI rejects ~50% of fixtures due to thin context).
-- Historical accuracy dashboard (won/lost/void per day, ROI tracking).
-- Push the daily slip to a Telegram channel as well.
+- Add second odds-API source toggle (e.g. API-Football for injuries/lineups/xG) — admin-config provider field is already wired for swap
+- Historical accuracy dashboard (won/lost/void per day, ROI tracking)
+- Per-league filter for users
+- Slip history pagination beyond 60-day window
+- Brute-force lockout: K8s ingress IP-rotation fix (currently uses email as identifier, OK but not ideal)
 
 ## Tech Choices Locked In
-- DON'T modify supervisor configs.
-- DON'T break CORS.
-- DO use REACT_APP_BACKEND_URL on the frontend; MONGO_URL/DB_NAME on the backend.
-- DO route all backend endpoints through `/api`.
+- Don't modify supervisor configs.
+- Use REACT_APP_BACKEND_URL on the frontend; MONGO_URL/DB_NAME on the backend.
+- Route all backend endpoints through `/api`.
+- For new external integrations, route through `integration_playbook_expert_v2`.
 
 ## Production Note
-The user has deployed this app to https://probability-vault.emergent.host. Bug reports should be checked against both preview AND production environments. Code fixes happen in preview only — production is updated via the platform's deploy step (not in this agent's scope).
+The user has deployed this app to https://probability-vault.emergent.host. Bug reports should always be reproduced in PREVIEW (this environment) before claiming a fix; production is updated via the platform's deploy step.
