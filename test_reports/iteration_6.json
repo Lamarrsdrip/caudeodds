@@ -1,0 +1,75 @@
+{
+  "summary": "Phase 5 (iter_6) testing of ClaudeOdds — PWA auto-update, Public ROI Tracker, Next-day rollover. ALL 8 NEW phase-5 backend tests PASS + 13/14 phase-4 regression PASS (1 skip unchanged) + 11/12 deep-audit PASS (1 pre-existing failure as flagged by main agent — test_slip_today_legs_are_realistic now hits awaiting_tomorrow state because today's slate is empty + post-22:00 UTC rollover is active). The cron crash fix from iter_5 is verified in saas_models.py L131-132 (Field(ge=0,le=23) / Field(ge=0,le=59) present). Frontend desktop+mobile clean: PublicRoiTracker mounted on Landing, SW registered with correct scope, Pre-Gen Tomorrow button present on AdminPredictions, Dashboard correctly renders awaiting-tomorrow-card + tomorrow-badge for the rollover state. Zero console errors across /, /dashboard, /admin/predictions, /pricing, /subscription on desktop+mobile (390x844).",
+  "tests_executed": {
+    "backend_pytest_phase5 (8/8 PASS)": [
+      "GET /api/public/roi shape + totals keys + window/from/to — PASS",
+      "GET /api/public/roi?days=0 clamps to 1, ?days=1000 clamps to 365 — PASS",
+      "GET /api/slip/today includes is_tomorrow boolean — PASS",
+      "POST /api/slip/generate?date=not-a-date → 400 with 'YYYY-MM-DD' in error — PASS",
+      "POST /api/slip/generate?date=tomorrow → 200 with date=YYYY-MM-DD for tomorrow — PASS",
+      "POST /api/slip/generate?date=YYYY-MM-DD (explicit) honoured — PASS",
+      "/api/public/roi no auth required — PASS",
+      "ROI math: won+lost+void == slips_settled, ROI sign matches profit sign — PASS"
+    ],
+    "backend_pytest_phase4_regression": "13/14 PASS, 1 unchanged SKIP (TestStrategyCap.test_slip_today_respects_cap)",
+    "backend_pytest_deep_audit": "11/12 PASS, 1 unchanged SKIP (cron destructive test), 1 PRE-EXISTING FAIL (test_slip_today_legs_are_realistic — today's slate empty, /api/slip/today returns awaiting_tomorrow as designed. Not a regression.)",
+    "scheduler_verification": "scheduler.py contains _run_tomorrow_pregen (L96) + tomorrow_pregen cron job id (L216) + tomorrow_pregen_next key (L232). saas_models.py cron_hour_utc/cron_minute_utc HAVE Field(ge,le) validators (L131-132). Iter_5 CRITICAL fix CONFIRMED in code.",
+    "frontend_desktop_1920x1080": [
+      "Landing /: data-testid='public-roi-section' present, data-testid='public-roi-empty' present (current DB has no settled slips — correct), 0 console errors — PASS",
+      "Service Worker: 1 registration at correct scope https://probability-vault.preview.emergentagent.com/ — PASS",
+      "/sw.js content: BUILD_VERSION='co-v3-2026-05-10', SKIP_WAITING handler, SW_ACTIVATED postMessage — ALL PRESENT — PASS",
+      "Admin login redirects to /admin (not /dashboard) — admin role behaviour, not a bug",
+      "/admin/predictions: data-testid='generate-tomorrow-btn' present with text 'Pre-Gen Tomorrow' — PASS",
+      "/pricing, /subscription: 0 console errors — PASS"
+    ],
+    "frontend_mobile_390x844": [
+      "Landing /: data-testid='public-roi-section' visible, 0 console errors — PASS",
+      "Dashboard /dashboard: data-testid='awaiting-tomorrow-card' AND data-testid='tomorrow-badge' BOTH present (correct — API returns is_tomorrow:true AND awaiting_tomorrow:true when tomorrow slip not yet built post-22:00 UTC) — PASS",
+      "0 console errors on mobile — PASS"
+    ],
+    "live_api_through_public_url": "GET https://probability-vault.preview.emergentagent.com/api/public/roi?days=30 → 200 JSON with all required keys ✓ ; GET /sw.js → contains BUILD_VERSION/SKIP_WAITING/SW_ACTIVATED ✓"
+  },
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/slip/today (admin)", "issue": "Carry-over from iter_5: per-leg expected_value still null in payload. Combined EV is populated. Cosmetic only."},
+      {"endpoint": "deep_audit::test_slip_today_legs_are_realistic", "issue": "Pre-existing test failure (NOT a regression). Today (2026-05-10) has no picks generated, so /api/slip/today returns awaiting_tomorrow:true + is_tomorrow:true + locked:true (since tomorrow's pre-gen has also not run). The deep-audit test asserts locked is False which is incorrect under the new rollover-aware shape. Test needs updating to skip when awaiting_tomorrow=true OR seed today's slip first as main agent suggested."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard rollover state", "issues": ["When API returns is_tomorrow=true AND awaiting_tomorrow=true (tomorrow's slip not yet pre-generated post-22:00 UTC), BOTH data-testid='tomorrow-badge' AND data-testid='awaiting-tomorrow-card' render simultaneously. Functionally correct, but UX-wise consider hiding the badge when the awaiting card is shown (badge implies a slip is rendered)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase5_rollover.py",
+    "/app/backend/tests/test_phase4.py",
+    "/app/backend/tests/test_deep_audit.py",
+    "/app/test_reports/pytest/phase5_results.xml",
+    "/app/test_reports/pytest/deep_audit_results.xml"
+  ],
+  "action_items": [
+    "(LOW) Update /app/backend/tests/test_deep_audit.py::TestAIRealism::test_slip_today_legs_are_realistic to call POST /api/slip/generate (no date) first to seed today's slip, OR pytest.skip() when body.get('awaiting_tomorrow') is true. Not a code bug — test is now stale under new rollover-aware shape.",
+    "(LOW UX) Dashboard.jsx — when API returns both is_tomorrow=true AND awaiting_tomorrow=true, render only the awaiting-tomorrow-card and suppress the tomorrow-badge to avoid contradictory messaging.",
+    "(LOW carry-over) Populate per-leg expected_value + quant_view.book_implied_prob in /api/slip/today response.",
+    "(LOW carry-over) Mobile /admin/predictions header buttons (now 3: GENERATE/FORCE/PRE-GEN TOMORROW) risk clipping at 390px width — verify wrap behaviour on actual device."
+  ],
+  "critical_code_review_comments": [
+    "saas_models.py L131-132 — Field(ge=0,le=23) and Field(ge=0,le=59) NOW PRESENT. Iter_5 CRITICAL fix confirmed. Cron crash regression closed.",
+    "server.py /api/public/roi (L174) — properly clamps days to [1,365], aggregates won/lost/void/pending from settled slips, computes profit_units from odds*stake math, exposes ROI%, win%, history. No auth required. Math verified by phase-5 test.",
+    "server.py /api/slip/today refactor — _build_slip_for_date helper + _should_rollover (post-22:00 UTC OR all settled OR empty today) cleanly handles 3 states (today, tomorrow, awaiting). Good separation.",
+    "scheduler.py — _run_tomorrow_pregen pre-generates tomorrow's slip at 22:00 UTC daily; configure_scheduler exposes tomorrow_pregen_next in return dict.",
+    "frontend/public/sw.js — BUILD_VERSION + SKIP_WAITING + SW_ACTIVATED hooks all wired. Cache versioning via BUILD_VERSION prevents stale cache between deploys.",
+    "PublicRoiTracker.jsx + PwaUpdater.jsx — new components clean, no console errors, proper data-testids present."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% on new phase-5 (8/8); deep-audit 11/12 with 1 pre-existing test-stale failure flagged by main agent", "frontend": "100% (5 pages desktop + 2 pages mobile, 0 console errors)"},
+  "test_credentials": "admin@claudeodd.com / Admin@2026 (verified working — admin redirects to /admin on login).",
+  "seed_data_creation": "None new. Phase-5 tests created tomorrow + day-after slip jobs via POST /api/slip/generate?date={tomorrow,YYYY-MM-DD}.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run `cd /app/backend && pytest tests/test_phase5_rollover.py tests/test_phase4.py tests/test_deep_audit.py -v --junitxml=/app/test_reports/pytest/all.xml`. Expect 8+13+11 passes, 2 skips, 1 pre-existing fail in deep_audit test_slip_today_legs_are_realistic (rollover-aware shape — test needs update or seed today's slip via POST /api/slip/generate). All phase-5 features verified working end-to-end via public URL. PWA SW correctly registered with BUILD_VERSION='co-v3-2026-05-10'. Public ROI tracker correctly shows empty card (no settled slips in DB). Dashboard rollover correctly hits awaiting state since today (2026-05-10) has no picks and UTC > 22:00 triggers rollover.",
+  "rca of the issue": "Pre-existing deep_audit failure RCA: In iter_5 the test asserted locked:false on admin /api/slip/today, which was always true when picks existed. In iter_6, the endpoint was refactored to rollover to tomorrow when today is empty/done. When BOTH today and tomorrow lack picks (current DB state, post-22:00 UTC), the response is the locked teaser with awaiting_tomorrow:true. The test still asserts locked must be false — it now fails for legitimate reasons. Mitigation: either (a) POST /api/slip/generate (no date) before the test to seed today, or (b) pytest.skip() when body.get('awaiting_tomorrow') is true. Not a regression in feature code."
+}

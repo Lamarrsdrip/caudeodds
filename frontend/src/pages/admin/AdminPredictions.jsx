@@ -18,10 +18,10 @@ export default function AdminPredictions() {
     catch (e) { toast.error(formatApiError(e)); }
   };
 
-  const generate = async (force) => {
+  const generate = async (force, date = "today") => {
     setBusy(true);
     try {
-      const r = await api.adminGenerate(force);
+      const r = await api.adminGenerate(force, date);
       if (r.status === "completed" || r.cached) {
         toast.success(`Done. ${r.cached ? "Cached" : "Generated"} · picks: ${r.picks ?? 0} · fixtures analyzed: ${r.fixtures_analyzed ?? 0}`);
         refresh();
@@ -83,6 +83,9 @@ export default function AdminPredictions() {
           </button>
           <button onClick={() => generate(true)} disabled={busy} data-testid="force-regen-btn" className="bg-[#00ff66] text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 hover:bg-[#f5f5f5] disabled:opacity-50 flex-1 sm:flex-none">
             {busy ? "Running…" : "Force Re-Generate"}
+          </button>
+          <button onClick={() => generate(false, "tomorrow")} disabled={busy} data-testid="generate-tomorrow-btn" className="border border-[#00ff66] text-[#00ff66] hover:bg-[#00ff66] hover:text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 disabled:opacity-50 flex-1 sm:flex-none">
+            {busy ? "Running…" : "Pre-Gen Tomorrow"}
           </button>
         </div>
       </div>

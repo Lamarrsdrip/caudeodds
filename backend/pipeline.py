@@ -19,6 +19,11 @@ def today_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def tomorrow_str() -> str:
+    from datetime import timedelta
+    return (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+
+
 async def run_pipeline(date_str: str, settings: Settings, db=None) -> Tuple[List[Pick], List[RejectionLog], int]:
     fixtures = await generate_fixtures_for_date_async(date_str, db=db)
     if settings.sport_filter != "all":

@@ -93,6 +93,53 @@ async def _run_daily_pipeline(db):
         }})
 
 
+async def _run_tomorrow_pregen(db):
+    """Pre-generate tomorrow's slip late-night so the dashboard rolls over
+    seamlessly the moment today's slate finishes."""
+    from pipeline import tomorrow_str
+    date_str = tomorrow_str()
+    existing = await db.claudeodd_runs.find_one({"_id": date_str}, {"_id": 0})
+    if existing:
+        logger.info("Tomorrow-pregen: %s already generated — skipping", date_str)
+        return
+
+    job_id = str(uuid.uuid4())
+    await db.claudeodd_jobs.insert_one({
+        "id": job_id, "date": date_str, "status": "running", "force": False,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None, "picks": 0, "rejected": 0, "fixtures_analyzed": 0,
+        "error": None, "source": "tomorrow_pregen",
+    })
+    try:
+        settings_doc = await db.claudeodd_settings.find_one({"_id": "main"}, {"_id": 0})
+        settings = Settings(**settings_doc) if settings_doc else Settings()
+        picks, rejections, total = await run_pipeline(date_str, settings, db=db)
+        if picks:
+            await db.claudeodd_picks.insert_many([p.model_dump() for p in picks])
+        if rejections:
+            await db.claudeodd_rejections.insert_many([r.model_dump() for r in rejections])
+        await db.claudeodd_runs.update_one(
+            {"_id": date_str},
+            {"$set": {"date": date_str, "rejected_count": len(rejections),
+                      "fixtures_analyzed": total,
+                      "completed_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+        await db.claudeodd_jobs.update_one({"id": job_id}, {"$set": {
+            "status": "completed",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "picks": len(picks), "rejected": len(rejections), "fixtures_analyzed": total,
+        }})
+        logger.info("Tomorrow-pregen complete (%s): picks=%d total=%d", date_str, len(picks), total)
+    except Exception as e:
+        logger.exception("Tomorrow-pregen failed: %s", e)
+        await db.claudeodd_jobs.update_one({"id": job_id}, {"$set": {
+            "status": "failed",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "error": str(e)[:500],
+        }})
+
+
 async def _run_autosettle(db):
     """Run auto-settlement sweep."""
     try:
@@ -158,14 +205,31 @@ async def configure_scheduler(db) -> dict:
         )
         logger.info("Auto-settle scheduled every %dh", autosettle_hours)
 
+    # Tomorrow-pregen job: every day at 22:00 UTC pre-build tomorrow's slip
+    # so the dashboard rolls over seamlessly the moment today's slate finishes.
+    if _scheduler.get_job("tomorrow_pregen"):
+        _scheduler.remove_job("tomorrow_pregen")
+    if enabled:
+        _scheduler.add_job(
+            _run_tomorrow_pregen,
+            CronTrigger(hour=22, minute=0, timezone="UTC"),
+            id="tomorrow_pregen",
+            args=[db],
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+        logger.info("Tomorrow-pregen scheduled daily at 22:00 UTC")
+
     daily_next = _scheduler.get_job("daily_pipeline").next_run_time if _scheduler.get_job("daily_pipeline") else None
     settle_next = _scheduler.get_job("autosettle").next_run_time if _scheduler.get_job("autosettle") else None
+    pregen_next = _scheduler.get_job("tomorrow_pregen").next_run_time if _scheduler.get_job("tomorrow_pregen") else None
     return {
         "daily_enabled": enabled, "daily_next": str(daily_next),
         "daily_hour_utc": hour, "daily_minute_utc": minute,
         "autosettle_enabled": autosettle_enabled,
         "autosettle_interval_hours": autosettle_hours,
         "autosettle_next": str(settle_next),
+        "tomorrow_pregen_next": str(pregen_next),
     }
 
 

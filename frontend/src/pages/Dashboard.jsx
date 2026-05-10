@@ -61,6 +61,9 @@ export default function Dashboard() {
   const [slip, setSlip] = useState(null);
   const [locked, setLocked] = useState(true);
   const [awaitingData, setAwaitingData] = useState(null);
+  const [isTomorrow, setIsTomorrow] = useState(false);
+  const [awaitingTomorrow, setAwaitingTomorrow] = useState(null);
+  const [slipDate, setSlipDate] = useState("");
   const [history, setHistory] = useState([]);
   const [tab, setTab] = useState("today");
   const [vapid, setVapid] = useState("");
@@ -69,6 +72,13 @@ export default function Dashboard() {
     api.slipToday().then(d => {
       setSlip(d.slip);
       setLocked(d.locked);
+      setIsTomorrow(!!d.is_tomorrow);
+      setSlipDate(d.date || "");
+      if (d.awaiting_tomorrow) {
+        setAwaitingTomorrow({ message: d.message });
+      } else {
+        setAwaitingTomorrow(null);
+      }
       if (d.awaiting_data) {
         setAwaitingData({
           message: d.message,
@@ -82,6 +92,15 @@ export default function Dashboard() {
     api.slipHistory().then(setHistory).catch(() => setHistory([]));
     api.publicConfig().then(c => setVapid(c.vapid_public_key || "")).catch(() => {});
   }, [user?.subscription_status]);
+
+  const headingLabel = isTomorrow ? "TOMORROW'S COMBINED SLIP" : "TODAY'S COMBINED SLIP";
+  const subLabel = awaitingTomorrow
+    ? "Today's matches are done — tomorrow's slip coming soon"
+    : awaitingData
+      ? "Awaiting real intel data"
+      : isTomorrow
+        ? `${slip?.leg_count || 0} legs · pre-built for ${slipDate}`
+        : (slip ? `${slip.leg_count} legs · published by AI ensemble` : "Awaiting today's run…");
 
   return (
     <div className="min-h-screen bg-[#050505] text-[#f5f5f5]">
@@ -106,19 +125,34 @@ export default function Dashboard() {
 
         {tab === "today" && (
           <div>
-            <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight mb-2">TODAY'S COMBINED SLIP</h1>
+            <div className="flex items-center gap-3 flex-wrap mb-2">
+              <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight">{headingLabel}</h1>
+              {isTomorrow && (
+                <span data-testid="tomorrow-badge" className="px-2 py-1 bg-[#00ff66] text-[#050505] font-mono text-[10px] uppercase tracking-widest font-bold">
+                  Next-day rollover
+                </span>
+              )}
+            </div>
             <p className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mb-5 sm:mb-6">
-              // {awaitingData ? "Awaiting real intel data" : (slip ? `${slip.leg_count} legs · published by AI ensemble` : "Awaiting today's run…")}
+              // {subLabel}
             </p>
-            {awaitingData ? (
+            {awaitingTomorrow ? (
+              <div className="co-card p-6 sm:p-8 border-l-4 border-l-[#00ff66]" data-testid="awaiting-tomorrow-card">
+                <div className="font-heading font-bold text-lg mb-2">Today's slate is finished</div>
+                <p className="text-sm text-[#a3a3a3] leading-relaxed mb-3">{awaitingTomorrow.message}</p>
+                <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">
+                  // The next AI ensemble run is scheduled — check back in a few minutes.
+                </div>
+              </div>
+            ) : awaitingData ? (
               <div className="co-card p-6 sm:p-8 border-l-4 border-l-[#ffb800]" data-testid="awaiting-data-card">
-                <div className="font-heading font-bold text-lg mb-2">No slip today — awaiting real data</div>
+                <div className="font-heading font-bold text-lg mb-2">No slip {isTomorrow ? "tomorrow" : "today"} — awaiting real data</div>
                 <p className="text-sm text-[#a3a3a3] leading-relaxed mb-3">{awaitingData.message}</p>
                 <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">
-                  // data richness today: {Math.round((awaitingData.richness || 0) * 100)}% · minimum required: {Math.round((awaitingData.min_required || 0) * 100)}%
+                  // data richness: {Math.round((awaitingData.richness || 0) * 100)}% · minimum required: {Math.round((awaitingData.min_required || 0) * 100)}%
                 </div>
                 <p className="text-xs text-[#525252] mt-4 leading-relaxed">
-                  We refuse to ship slips that aren't backed by real injury / form / head-to-head data — that's how we keep your win-rate honest. Check back later today.
+                  We refuse to ship slips that aren't backed by real injury / form / head-to-head data — that's how we keep your win-rate honest. Check back later.
                 </p>
               </div>
             ) : (

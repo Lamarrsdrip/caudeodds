@@ -38,7 +38,7 @@ from payments import (  # noqa: E402
     verify_flutterwave_tx,
     verify_webhook_signature,
 )
-from pipeline import run_pipeline, today_str  # noqa: E402
+from pipeline import run_pipeline, today_str, tomorrow_str  # noqa: E402
 from saas_models import (  # noqa: E402
     AdminConfig,
     BankTransferProofPayload,
@@ -171,6 +171,108 @@ async def public_config():
     }
 
 
+@api.get("/public/roi")
+async def public_roi(days: int = 30):
+    """Public-facing ROI tracker. Aggregates settled slips over the last N days
+    so visitors can see real, honest performance (no marketing fluff).
+
+    Per-date slip outcome rules (1 unit flat stake per slip):
+      • won  → all legs won (treat void legs as neutral; if all legs are void,
+                slip is void)
+      • lost → any leg lost
+      • void → 100% of legs are void
+      • pending → none of the above (still waiting on a leg)
+
+    Profit per won slip = (combined_odds - 1) units.
+    Loss per lost slip  = -1 unit.
+    Void slips contribute 0 P/L.
+    """
+    from datetime import timedelta
+    days = 30 if days is None else int(days)
+    days = max(1, min(days, 365))
+    end = datetime.now(timezone.utc).date()
+    start = end - timedelta(days=days - 1)
+    start_str, end_str = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+
+    docs = await picks_col.find(
+        {"date": {"$gte": start_str, "$lte": end_str}},
+        {"_id": 0},
+    ).to_list(5000)
+
+    cfg = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
+    sb_url = cfg.get("sportybet_handle", "https://www.sportybet.com/ng/")
+    code_docs = await slip_codes_col.find({}, {"_id": 1, "code": 1}).to_list(2000)
+    code_by_date = {d["_id"]: d.get("code", "") for d in code_docs}
+
+    by_date: dict = {}
+    for d in docs:
+        by_date.setdefault(d["date"], []).append(d)
+
+    history: list = []
+    won = lost = void = pending = 0
+    profit = 0.0
+    for date in sorted(by_date.keys(), reverse=True):
+        picks_d = [Pick(**p) for p in by_date[date]]
+        slip = build_slip(date, picks_d, sportybet_url=sb_url,
+                          manual_code=code_by_date.get(date, ""))
+        if not slip or not slip.legs:
+            continue
+
+        statuses = [p.status for p in picks_d]
+        if any(s == "lost" for s in statuses):
+            outcome = "lost"
+        elif all(s == "void" for s in statuses):
+            outcome = "void"
+        elif all(s in ("won", "void") for s in statuses) and any(s == "won" for s in statuses):
+            outcome = "won"
+        else:
+            outcome = "pending"
+
+        if outcome == "won":
+            won += 1
+            profit += (slip.combined_odds - 1.0)
+        elif outcome == "lost":
+            lost += 1
+            profit -= 1.0
+        elif outcome == "void":
+            void += 1
+        else:
+            pending += 1
+
+        history.append({
+            "date": date,
+            "leg_count": slip.leg_count,
+            "combined_odds": round(slip.combined_odds, 2),
+            "outcome": outcome,
+            "won_legs": sum(1 for s in statuses if s == "won"),
+            "lost_legs": sum(1 for s in statuses if s == "lost"),
+            "void_legs": sum(1 for s in statuses if s == "void"),
+            "pending_legs": sum(1 for s in statuses if s == "pending"),
+            "total_legs": len(statuses),
+        })
+
+    settled = won + lost + void
+    roi_pct = (profit / settled * 100.0) if settled > 0 else 0.0
+    win_rate = (won / settled * 100.0) if settled > 0 else 0.0
+
+    return {
+        "window_days": days,
+        "from": start_str,
+        "to": end_str,
+        "totals": {
+            "slips_settled": settled,
+            "won": won,
+            "lost": lost,
+            "void": void,
+            "pending": pending,
+            "profit_units": round(profit, 2),
+            "roi_pct": round(roi_pct, 1),
+            "win_rate_pct": round(win_rate, 1),
+        },
+        "history": history[:60],
+    }
+
+
 # ------------------ Auth ------------------
 
 @api.post("/auth/register", response_model=TokenResponse)
@@ -268,21 +370,124 @@ async def auth_logout(user: dict = Depends(get_current_user_dep)):
 
 # ------------------ Daily Slip ------------------
 
-@api.get("/slip/today")
-async def slip_today(request: Request):
-    """Public endpoint with locked teaser; full slip if user has access."""
-    date_str = today_str()
+async def _build_slip_for_date(date_str: str, cfg: dict):
+    """Build the slip + quality gate result for a given date.
+
+    Returns a tuple: (slip_or_none, awaiting_data_payload_or_none, has_picks_bool,
+    all_settled_bool, latest_kickoff_iso_or_none).
+    """
     docs = await picks_col.find({"date": date_str}, {"_id": 0}).to_list(50)
-    cfg = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
+    has_picks = len(docs) > 0
     sb_url = cfg.get("sportybet_handle", "https://www.sportybet.com/ng/")
     code_doc = await slip_codes_col.find_one({"_id": date_str}, {"_id": 0}) or {}
     manual_code = code_doc.get("code", "")
     picks = [Pick(**d) for d in docs]
     slip = build_slip(date_str, picks, sportybet_url=sb_url, manual_code=manual_code)
 
+    # Are all legs of today's picks settled? Helps decide whether to roll over.
+    if picks:
+        all_settled = all(p.status in ("won", "lost", "void") for p in picks)
+    else:
+        all_settled = False
+
+    # Latest kickoff for "has the slate started/ended" detection.
+    latest_kickoff = None
+    for p in picks:
+        if p.kickoff:
+            if latest_kickoff is None or p.kickoff > latest_kickoff:
+                latest_kickoff = p.kickoff
+
+    if not slip:
+        return None, None, has_picks, all_settled, latest_kickoff
+
+    # SLIP-QUALITY GATE: average leg data_richness must clear admin threshold.
+    avg_richness = sum((l.data_richness or 0) for l in slip.legs) / max(len(slip.legs), 1)
+    min_richness = float(cfg.get("min_slip_data_richness", 0.4))
+    if avg_richness < min_richness:
+        return None, {
+            "data_richness": round(avg_richness, 2),
+            "min_required": min_richness,
+            "message": (
+                "Today's analysis is running on price-only data — no injury or "
+                "form intel was available. We refuse to ship slips that aren't "
+                "backed by real evidence. Come back later or check Admin → "
+                "Configuration → API-Football pre-flight."
+            ),
+        }, has_picks, all_settled, latest_kickoff
+
+    return slip, None, has_picks, all_settled, latest_kickoff
+
+
+def _should_rollover(has_picks: bool, all_settled: bool, latest_kickoff: Optional[str]) -> bool:
+    """Decide whether to surface tomorrow's slip instead of today's.
+
+    Triggers (best of best — both):
+    (a) All of today's picks are settled (won/lost/void) → slate is finished.
+    (b) Current UTC time is past 22:00 UTC → late-night cutoff, look ahead.
+    (c) Latest kickoff is in the past (every match has already started) and
+        the slate is finished or no picks exist for today.
+    """
+    if has_picks and all_settled:
+        return True
+    now = datetime.now(timezone.utc)
+    if now.hour >= 22:
+        return True
+    if has_picks and latest_kickoff:
+        try:
+            ko = datetime.fromisoformat(latest_kickoff.replace("Z", "+00:00"))
+            if (now - ko).total_seconds() > 3 * 3600 and all_settled:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+@api.get("/slip/today")
+async def slip_today(request: Request):
+    """Public endpoint with locked teaser; full slip if user has access.
+
+    Auto-rollover: when today's slate is finished (all settled) or it's past
+    the late-night cutoff, surfaces tomorrow's slip if generated.
+    """
+    cfg = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
+    today = today_str()
+    tomorrow = tomorrow_str()
+
+    today_slip, today_awaiting, today_has, today_settled, today_latest = \
+        await _build_slip_for_date(today, cfg)
+
+    rollover = _should_rollover(today_has, today_settled, today_latest)
+
+    date_str = today
+    slip = today_slip
+    awaiting = today_awaiting
+    is_tomorrow = False
+
+    if rollover:
+        tom_slip, _tom_awaiting, tom_has, _tom_settled, _tom_latest = \
+            await _build_slip_for_date(tomorrow, cfg)
+        if tom_slip:
+            slip = tom_slip
+            awaiting = None
+            date_str = tomorrow
+            is_tomorrow = True
+        else:
+            # Tomorrow not yet generated OR generated but insufficient picks to
+            # build a 2.0-5.0 combined slip. Either way, show the rollover
+            # awaiting state so the dashboard never appears empty at end of day.
+            return {
+                "date": tomorrow, "slip": None, "locked": True,
+                "fixtures_analyzed": 0,
+                "is_tomorrow": True,
+                "awaiting_tomorrow": True,
+                "message": (
+                    "Today's slate is done. Tomorrow's slip will be generated "
+                    "by the AI ensemble shortly — check back soon."
+                ),
+            }
+
     # Check user
     locked = True
-    user = None
     auth_header = request.headers.get("Authorization") or ""
     token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else None
     if token:
@@ -296,30 +501,20 @@ async def slip_today(request: Request):
         except Exception:
             pass
 
-    if not slip:
-        return {"date": date_str, "slip": None, "locked": locked, "fixtures_analyzed": 0}
-
-    # SLIP-QUALITY GATE: if average leg data_richness is below the admin
-    # threshold, suppress the slip entirely (the user doesn't want fakey
-    # "Market-Data Only" slips to ship). Show a clean "awaiting data" state.
-    avg_richness = (
-        sum((l.data_richness or 0) for l in slip.legs) / max(len(slip.legs), 1)
-    )
-    min_richness = float(cfg.get("min_slip_data_richness", 0.4))
-    if avg_richness < min_richness:
+    if awaiting:
         return {
             "date": date_str, "slip": None, "locked": locked,
             "fixtures_analyzed": 0,
+            "is_tomorrow": is_tomorrow,
             "awaiting_data": True,
-            "data_richness": round(avg_richness, 2),
-            "min_required": min_richness,
-            "message": (
-                "Today's analysis is running on price-only data — no injury or "
-                "form intel was available. We refuse to ship slips that aren't "
-                "backed by real evidence. Come back later or check Admin → "
-                "Configuration → API-Football pre-flight."
-            ),
+            "data_richness": awaiting["data_richness"],
+            "min_required": awaiting["min_required"],
+            "message": awaiting["message"],
         }
+
+    if not slip:
+        return {"date": date_str, "slip": None, "locked": locked,
+                "fixtures_analyzed": 0, "is_tomorrow": is_tomorrow}
 
     # If locked, return a teaser (no leg details)
     if locked:
@@ -337,9 +532,9 @@ async def slip_today(request: Request):
             f"and the full AI ensemble reasoning."
         )
         teaser["locked"] = True
-        return {"date": date_str, "slip": teaser, "locked": True}
+        return {"date": date_str, "slip": teaser, "locked": True, "is_tomorrow": is_tomorrow}
 
-    return {"date": date_str, "slip": slip.model_dump(), "locked": False}
+    return {"date": date_str, "slip": slip.model_dump(), "locked": False, "is_tomorrow": is_tomorrow}
 
 
 # ------------------ Admin: SportyBet booking code per date ------------------
@@ -440,10 +635,23 @@ async def admin_settle_now(_: dict = Depends(admin_required)):
 
 
 @api.post("/slip/generate")
-async def slip_generate(force: bool = False, _: dict = Depends(admin_required)):
+async def slip_generate(force: bool = False, date: Optional[str] = None, _: dict = Depends(admin_required)):
     """Admin-triggered generation. Returns immediately with a job_id; the actual
-    AI ensemble runs in a background task to avoid Kubernetes ingress timeouts."""
-    date_str = today_str()
+    AI ensemble runs in a background task to avoid Kubernetes ingress timeouts.
+
+    `date` may be 'today' (default), 'tomorrow', or an explicit YYYY-MM-DD.
+    """
+    if not date or date == "today":
+        date_str = today_str()
+    elif date == "tomorrow":
+        date_str = tomorrow_str()
+    else:
+        # Validate explicit ISO date
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+            date_str = date
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD, 'today', or 'tomorrow'")
 
     if not force:
         run = await runs_col.find_one({"_id": date_str}, {"_id": 0})

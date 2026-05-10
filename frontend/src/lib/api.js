@@ -32,6 +32,7 @@ export function formatApiError(err) {
 export const api = {
   // Public
   publicConfig: () => client.get("/public/config").then(r => r.data),
+  publicRoi: (days = 30) => client.get(`/public/roi?days=${days}`).then(r => r.data),
   slipToday: () => client.get("/slip/today").then(r => r.data),
   // Auth
   register: (payload) => client.post("/auth/register", payload).then(r => r.data),
@@ -56,7 +57,7 @@ export const api = {
   adminSaveConfig: (cfg) => client.post("/admin/config", cfg).then(r => r.data),
   adminPredictions: (date) => client.get(`/admin/predictions${date ? `?date=${date}` : ""}`).then(r => r.data),
   adminSettle: (id, result) => client.post(`/admin/predictions/${id}/settle`, { result }).then(r => r.data),
-  adminGenerate: (force = false) => client.post(`/slip/generate?force=${force}`).then(r => r.data),
+  adminGenerate: (force = false, date = "today") => client.post(`/slip/generate?force=${force}&date=${date}`).then(r => r.data),
   adminGenerateStatus: (jobId) => client.get(`/slip/generate/status/${jobId}`).then(r => r.data),
   adminRejected: (date) => client.get(`/admin/rejected${date ? `?date=${date}` : ""}`).then(r => r.data),
   adminGetSlipCode: (date) => client.get(`/admin/slip/code${date ? `?date=${date}` : ""}`).then(r => r.data),

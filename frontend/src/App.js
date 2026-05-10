@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import InstallPrompt from "@/components/InstallPrompt";
 import BottomNav from "@/components/BottomNav";
+import PwaUpdater from "@/components/PwaUpdater";
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
@@ -58,6 +59,7 @@ export default function App() {
         </Routes>
         <InstallPrompt />
         <BottomNav />
+        <PwaUpdater />
         <Toaster theme="dark" position="top-center"/>
       </BrowserRouter>
     </AuthProvider>

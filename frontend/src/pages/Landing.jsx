@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import EmrizFooter from "@/components/EmrizFooter";
+import PublicRoiTracker from "@/components/PublicRoiTracker";
 import { api } from "@/lib/api";
 import { Lock, TrendingUp, Shield, Zap, BarChart3, Globe } from "lucide-react";
 
@@ -98,6 +99,9 @@ export default function Landing() {
           )}
         </div>
       </section>
+
+      {/* Public ROI tracker — honest, settled P/L for visitors */}
+      <PublicRoiTracker />
 
       {/* Features */}
       <section className="border-b border-[#262626]">
