@@ -27,12 +27,21 @@ def make_sportybet_code(date_str: str, picks: List) -> str:
 
 def _select_picks(picks: List) -> List:
     """Greedy pack: take highest-confidence picks first. Combined odds must stay
-    within [2.0, 5.0]. Legs preferred 3-5, minimum 2."""
+    within [2.0, 5.0]. Legs preferred 3-5, minimum 2.
+
+    Strategy: prefer short-odds favourites first (better cap fit AND higher
+    win probability — matches user expectation of 'people to win always')."""
     if not picks:
         return []
+    # Score = confidence × edge / odds-penalty (favours shorter odds when conf is similar)
     sorted_picks = sorted(
         picks,
-        key=lambda p: (p.confidence * 0.6 + (p.expected_value * 100) * 0.3 + p.agreement * 0.1),
+        key=lambda p: (
+            p.confidence * 0.6
+            + (p.expected_value * 100) * 0.25
+            + p.agreement * 0.15
+            - max(0.0, (p.odds - 1.5) * 5)  # penalise long odds
+        ),
         reverse=True,
     )
 
@@ -42,22 +51,18 @@ def _select_picks(picks: List) -> List:
         if len(selected) >= MAX_LEGS:
             break
         new_combined = combined * float(p.odds)
-        # If adding this leg breaks the cap AND we already have enough legs → stop
         if new_combined > TARGET_MAX_ODDS and len(selected) >= HARD_MIN_LEGS:
             break
-        # If adding would break cap and we don't yet have hard-min legs, skip and try next
         if new_combined > TARGET_MAX_ODDS:
             continue
         selected.append(p)
         combined = new_combined
-        # Sweet spot: at least min legs and combined inside [2.0, 5.0] → stop
         if len(selected) >= MIN_LEGS and combined >= TARGET_MIN_ODDS:
             break
 
-    # If still under TARGET_MIN_ODDS, try to add more (highest odds first that still fits)
     if combined < TARGET_MIN_ODDS:
+        # Add longer-odds picks to reach 2.0
         remaining = [p for p in sorted_picks if p not in selected]
-        # Sort remaining by odds DESC to push combined up faster
         remaining.sort(key=lambda p: p.odds, reverse=True)
         for p in remaining:
             if len(selected) >= MAX_LEGS:
@@ -70,6 +75,11 @@ def _select_picks(picks: List) -> List:
             if combined >= TARGET_MIN_ODDS:
                 break
 
+    # Fallback: if no valid combo at all, ship the SINGLE highest-confidence pick
+    if not selected and picks:
+        best = max(picks, key=lambda p: p.confidence)
+        selected = [best]
+
     return selected
 
 
@@ -77,8 +87,7 @@ def build_slip(date_str: str, all_picks: List, sportybet_url: str = "https://www
     if not all_picks:
         return None
     picks = _select_picks(all_picks)
-    if len(picks) < HARD_MIN_LEGS:
-        # Not enough quality picks today
+    if not picks:
         return None
 
     legs: List[SlipLeg] = []

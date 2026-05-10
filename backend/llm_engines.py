@@ -1,10 +1,20 @@
-"""LLM ensemble engines for CLAUDEODD.
+"""LLM ensemble engines for ClaudeOdd — Anthropic Skills-style 3-agent pipeline.
 
-Both Claude (tactical/contextual) and GPT (quantitative) analyze each fixture
-INDEPENDENTLY in parallel. The consensus engine then checks if both models
-lean toward the SAME SIDE (e.g., both pick HOME, both pick OVER, etc.) regardless
-of which specific market they prefer. This catches genuine ensemble agreement
-without requiring exact market-code matches.
+Pipeline (per fixture):
+  1. RESEARCH agent (Claude)  — synthesises specific verifiable facts from the
+     fixture data (recent form, head-to-head, injuries impact, line moves) and
+     scores their credibility. Forces evidence-first, not vibes.
+  2. QUANT agent (GPT-4o-mini) — uses the research output + raw fixture data
+     to compute fair_prob, EV, edge for the highest-EV market.
+  3. TACTICAL agent (Claude)  — independently picks its best market based on
+     research + tactical lens.
+
+Consensus: side-direction match between QUANT and TACTICAL must hold. Research
+quality_score also gates final approval (low-research-quality fixtures are
+rejected upfront).
+
+Inspired by Anthropic's Prediction Market Skill framework (Scan → Research →
+Predict → Risk → Execute → Compound).
 """
 from __future__ import annotations
 
@@ -26,62 +36,96 @@ EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 GPT_MODEL = ("openai", "gpt-4o-mini")
 CLAUDE_MODEL = ("anthropic", "claude-haiku-4-5-20251001")
 
-# Side tokens used to compare which "direction" the two models lean
-SIDE_TOKENS = ["HOME", "AWAY", "DRAW", "OVER", "UNDER", "BTTS_YES", "BTTS_NO", "NONE"]
+
+RESEARCH_SYSTEM = """You are a SPORTS RESEARCH ANALYST. Your job is NOT to predict
+the outcome — it is to extract and synthesise SPECIFIC verifiable facts from the
+fixture data that a betting analyst can rely on. You are evidence-first.
+
+Process:
+1. Parse the fixture data carefully (odds, line movement, sharp_money_pct,
+   public_money_pct, injuries, form, xg, pace, fatigue, referee, weather).
+2. Identify FACTS that materially shift true probability.
+3. For each fact, score its credibility (0-100) and impact direction (HOME, AWAY, OVER, UNDER, BTTS_YES, BTTS_NO, NONE).
+4. Compute a research_quality_score (0-100) — high if you found multiple
+   high-credibility, non-conflicting facts; low if data is sparse or facts
+   conflict.
+
+Return STRICT JSON ONLY:
+{
+  "facts": [
+    {"claim": "<concise fact>", "credibility": <0-100>, "direction": "<HOME|AWAY|OVER|UNDER|BTTS_YES|BTTS_NO|NONE>", "weight": <0-1>}
+  ],
+  "consensus_direction": "<HOME|AWAY|OVER|UNDER|BTTS_YES|BTTS_NO|NONE>",
+  "research_quality_score": <0-100>,
+  "key_risks": ["<risk>", ...],
+  "summary": "<3 sentences max>"
+}
+
+If the data is too thin to find ANY high-credibility facts, set
+research_quality_score < 40 and consensus_direction = "NONE"."""
 
 
 QUANT_SYSTEM = """You are an elite QUANTITATIVE sports betting analyst at a hedge fund.
-Your job: from match data, find the SINGLE best-edge market with measurable
-positive expected value vs. bookmaker implied probability. NEVER invent stats
-or contradict the input data. If no edge exists, return confidence < 50 and
-expected_value near zero — that is correct (the system will skip the bet).
+Use the RESEARCH OUTPUT (provided) plus the raw fixture data to find the SINGLE
+best-edge market with measurable positive EV vs bookmaker implied probability.
 
-Available market enum values for "market" field (use EXACT strings):
+NEVER invent stats or contradict the research. If research_quality_score < 50,
+reduce confidence and flag low_edge.
+
+Available market enum values for "market":
 1X2_HOME, 1X2_DRAW, 1X2_AWAY, DC_1X, DC_X2, DC_12,
 DNB_HOME, DNB_AWAY, OU_2_5_OVER, OU_2_5_UNDER,
 BTTS_YES, BTTS_NO, AH_HOME_-0.5, AH_AWAY_+0.5,
 ML_HOME, ML_AWAY, SPREAD_HOME, SPREAD_AWAY,
 TOTAL_OVER, TOTAL_UNDER, TEAM_TOTAL_HOME_OVER, TEAM_TOTAL_HOME_UNDER
 
-Return STRICT JSON ONLY (no markdown):
+Return STRICT JSON ONLY:
 {
   "market": "<enum>",
   "selection_label": "<human readable>",
   "fair_prob": <float 0-1>,
   "book_implied_prob": <float 0-1>,
-  "expected_value": <float, can be negative>,
+  "expected_value": <float>,
   "confidence": <float 0-100>,
-  "edge_pct": <float, may be negative>,
-  "rationale": "<2 sentences max, factual>",
+  "edge_pct": <float>,
+  "rationale": "<2 sentences citing specific research facts>",
   "flags": ["<volatility_high|low_liquidity|sharp_disagreement|low_edge|none>"]
 }"""
 
 
 REASONING_SYSTEM = """You are an elite TACTICAL sports analyst.
-Independently analyze the fixture using tactical reasoning: coach matchups,
-momentum, injuries, narrative risk (revenge, dead rubbers), referee, weather,
-fatigue, public bias. Identify the market most aligned with tactical reality.
+Use the RESEARCH OUTPUT (provided) plus tactical lens (coach matchups, momentum,
+narrative risk, referee, weather, fatigue, public bias) to recommend the best
+market. You are SKEPTICAL but constructive.
 
-You are SKEPTICAL but constructive. Recommend a market only when tactics
-clearly favor one side. If unclear, set tactical_confidence < 50 and
-narrative_risk > 60.
-
-Use the SAME enum values for "recommended_market" as the quant analyst:
-1X2_HOME, 1X2_DRAW, 1X2_AWAY, DC_1X, DC_X2, DC_12, DNB_HOME, DNB_AWAY,
-OU_2_5_OVER, OU_2_5_UNDER, BTTS_YES, BTTS_NO, AH_HOME_-0.5, AH_AWAY_+0.5,
-ML_HOME, ML_AWAY, SPREAD_HOME, SPREAD_AWAY, TOTAL_OVER, TOTAL_UNDER,
-TEAM_TOTAL_HOME_OVER, TEAM_TOTAL_HOME_UNDER, NO_BET
+Use the SAME enum values as quant. NO_BET if no edge.
 
 Return STRICT JSON ONLY:
 {
-  "agrees_with_quant": <true|false — set true if your recommended_market shares the same SIDE (HOME/AWAY/OVER/UNDER/BTTS_YES/BTTS_NO) as the quant pick provided>,
-  "recommended_market": "<enum>",
+  "agrees_with_quant": true,
+  "recommended_market": "<enum or NO_BET>",
   "tactical_confidence": <float 0-100>,
   "narrative_risk": <float 0-100>,
   "key_factors": ["<bullet>", "<bullet>"],
   "red_flags": ["<flag>"],
   "reasoning": "<2-3 sentences>"
 }"""
+
+
+SIDE_TOKENS = ["HOME", "AWAY", "DRAW", "OVER", "UNDER", "BTTS_YES", "BTTS_NO", "NONE"]
+
+
+def market_to_side(market: str) -> str:
+    m = (market or "").upper().replace("-", "_").replace(".", "_")
+    if "OVER" in m: return "OVER"
+    if "UNDER" in m: return "UNDER"
+    if "BTTS_YES" in m: return "BTTS_YES"
+    if "BTTS_NO" in m: return "BTTS_NO"
+    if "DRAW" in m or m == "1X2_DRAW": return "DRAW"
+    if "AWAY" in m or m == "DC_X2": return "AWAY"
+    if "HOME" in m or m == "DC_1X": return "HOME"
+    if m == "DC_12": return "HOME"
+    return "NONE"
 
 
 def _strip_json(s: str) -> str:
@@ -95,88 +139,86 @@ def _strip_json(s: str) -> str:
     return s
 
 
-def market_to_side(market: str) -> str:
-    """Canonicalize a market to a SIDE token for ensemble comparison."""
-    m = (market or "").upper().replace("-", "_").replace(".", "_")
-    if "OVER" in m: return "OVER"
-    if "UNDER" in m: return "UNDER"
-    if "BTTS_YES" in m: return "BTTS_YES"
-    if "BTTS_NO" in m: return "BTTS_NO"
-    if "DRAW" in m or m.endswith("_X") or m == "1X2_DRAW": return "DRAW"
-    if "AWAY" in m or m.endswith("_2") or m == "DC_X2": return "AWAY"
-    if "HOME" in m or m.endswith("_1") or m == "DC_1X": return "HOME"
-    if m == "DC_12": return "HOME"  # closer to home leaning, treat as ambiguous-home
-    return "NONE"
-
-
 def _fixture_payload(fx: Fixture) -> dict:
     return {
-        "sport": fx.sport,
-        "league": fx.league,
-        "match": f"{fx.home} vs {fx.away}",
-        "kickoff": fx.kickoff,
-        "odds": fx.odds,
-        "line_movement": fx.line_movement,
-        "sharp_money_pct": fx.sharp_money_pct,
-        "public_money_pct": fx.public_money_pct,
-        "liquidity_score": fx.liquidity_score,
-        "volatility": fx.volatility,
-        "injuries": fx.injuries,
-        "xg": fx.xg,
-        "pace": fx.pace,
-        "home_form": fx.home_form,
-        "away_form": fx.away_form,
-        "travel_fatigue": fx.travel_fatigue,
-        "referee_tendency": fx.referee_tendency,
+        "sport": fx.sport, "league": fx.league,
+        "match": f"{fx.home} vs {fx.away}", "kickoff": fx.kickoff,
+        "odds": fx.odds, "line_movement": fx.line_movement,
+        "sharp_money_pct": fx.sharp_money_pct, "public_money_pct": fx.public_money_pct,
+        "liquidity_score": fx.liquidity_score, "volatility": fx.volatility,
+        "injuries": fx.injuries, "xg": fx.xg, "pace": fx.pace,
+        "home_form": fx.home_form, "away_form": fx.away_form,
+        "travel_fatigue": fx.travel_fatigue, "referee_tendency": fx.referee_tendency,
         "weather": fx.weather,
     }
 
 
-async def run_quant(fx: Fixture) -> QuantOutput | None:
+async def _llm(model_provider: tuple, system: str, payload: str, session_prefix: str, fx_id: str) -> dict | None:
     if not EMERGENT_KEY:
         logger.error("EMERGENT_LLM_KEY missing")
         return None
     chat = LlmChat(
         api_key=EMERGENT_KEY,
-        session_id=f"quant-{fx.id}-{uuid.uuid4().hex[:6]}",
-        system_message=QUANT_SYSTEM,
-    ).with_model(*GPT_MODEL)
-    payload = json.dumps(_fixture_payload(fx), indent=2)
-    msg = UserMessage(text=f"Analyze this fixture quantitatively. JSON only.\n\n{payload}")
+        session_id=f"{session_prefix}-{fx_id}-{uuid.uuid4().hex[:6]}",
+        system_message=system,
+    ).with_model(*model_provider)
     try:
-        raw = await chat.send_message(msg)
-        return QuantOutput(**json.loads(_strip_json(raw)))
+        raw = await chat.send_message(UserMessage(text=payload))
+        return json.loads(_strip_json(raw))
     except Exception as e:
-        logger.warning("Quant LLM failed for %s vs %s: %s", fx.home, fx.away, e)
+        logger.warning("LLM call failed [%s]: %s", session_prefix, e)
         return None
 
 
-async def run_reasoning(fx: Fixture) -> ReasoningOutput | None:
-    if not EMERGENT_KEY:
+async def run_research(fx: Fixture) -> dict | None:
+    payload = "Analyze this fixture. Return research JSON only.\n\n" + json.dumps(_fixture_payload(fx), indent=2)
+    return await _llm(CLAUDE_MODEL, RESEARCH_SYSTEM, payload, "research", fx.id)
+
+
+async def run_quant(fx: Fixture, research: dict) -> QuantOutput | None:
+    body = {"fixture": _fixture_payload(fx), "research": research}
+    payload = "Use the research evidence to find the highest-EV market. JSON only.\n\n" + json.dumps(body, indent=2)
+    data = await _llm(GPT_MODEL, QUANT_SYSTEM, payload, "quant", fx.id)
+    if data is None:
         return None
-    chat = LlmChat(
-        api_key=EMERGENT_KEY,
-        session_id=f"reason-{fx.id}-{uuid.uuid4().hex[:6]}",
-        system_message=REASONING_SYSTEM,
-    ).with_model(*CLAUDE_MODEL)
-    payload = json.dumps(_fixture_payload(fx), indent=2)
-    msg = UserMessage(text=(
-        "Analyze this fixture tactically and recommend the best market. "
-        "Set agrees_with_quant=true (the quant pick will be cross-checked by side direction). "
-        "JSON only.\n\n" + payload
-    ))
     try:
-        raw = await chat.send_message(msg)
-        data = json.loads(_strip_json(raw))
-        # Normalize: ensure "agrees_with_quant" exists (default true; consensus checks side)
-        if "agrees_with_quant" not in data:
-            data["agrees_with_quant"] = True
+        return QuantOutput(**data)
+    except Exception as e:
+        logger.warning("Quant parse failed: %s", e)
+        return None
+
+
+async def run_reasoning(fx: Fixture, research: dict) -> ReasoningOutput | None:
+    body = {"fixture": _fixture_payload(fx), "research": research}
+    payload = "Use the research evidence + tactical lens. Recommend best market. JSON only.\n\n" + json.dumps(body, indent=2)
+    data = await _llm(CLAUDE_MODEL, REASONING_SYSTEM, payload, "reason", fx.id)
+    if data is None:
+        return None
+    if "agrees_with_quant" not in data:
+        data["agrees_with_quant"] = True
+    try:
         return ReasoningOutput(**data)
     except Exception as e:
-        logger.warning("Reasoning LLM failed for %s vs %s: %s", fx.home, fx.away, e)
+        logger.warning("Reasoning parse failed: %s", e)
         return None
 
 
-async def run_ensemble(fx: Fixture) -> tuple[QuantOutput | None, ReasoningOutput | None]:
-    """Run both models in parallel for true independent analysis."""
-    return await asyncio.gather(run_quant(fx), run_reasoning(fx))
+async def run_ensemble(fx: Fixture) -> tuple[QuantOutput | None, ReasoningOutput | None, dict | None]:
+    """Pipeline: Research → (Quant ∥ Reasoning).
+
+    Returns (quant, reasoning, research). The research dict carries
+    research_quality_score + consensus_direction used by the consensus engine
+    as an additional gate.
+    """
+    research = await run_research(fx)
+    if research is None:
+        return None, None, None
+    quality = float(research.get("research_quality_score", 0))
+    if quality < 35:
+        logger.info("Skipping %s vs %s — research quality %.0f < 35", fx.home, fx.away, quality)
+        return None, None, research
+
+    quant_task = asyncio.create_task(run_quant(fx, research))
+    reason_task = asyncio.create_task(run_reasoning(fx, research))
+    quant, reasoning = await asyncio.gather(quant_task, reason_task)
+    return quant, reasoning, research

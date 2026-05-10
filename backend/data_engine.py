@@ -57,17 +57,17 @@ def seed_for_date(date_str: str) -> int:
 
 
 def _football_odds(rng: random.Random, value_bias: bool = False) -> dict:
-    home = round(rng.uniform(1.45, 4.20), 2)
-    draw = round(rng.uniform(2.90, 4.40), 2)
-    away = round(rng.uniform(1.60, 5.50), 2)
-    over25 = round(rng.uniform(1.55, 2.40), 2)
-    under25 = round(rng.uniform(1.55, 2.40), 2)
-    btts_yes = round(rng.uniform(1.55, 2.20), 2)
-    btts_no = round(rng.uniform(1.65, 2.30), 2)
-    # Inject mispricing on one market when value_bias=True (simulates real bookmaker inefficiency)
+    home = round(rng.uniform(1.35, 3.80), 2)
+    draw = round(rng.uniform(2.90, 4.20), 2)
+    away = round(rng.uniform(1.55, 4.80), 2)
+    over25 = round(rng.uniform(1.55, 2.30), 2)
+    under25 = round(rng.uniform(1.55, 2.30), 2)
+    btts_yes = round(rng.uniform(1.55, 2.10), 2)
+    btts_no = round(rng.uniform(1.65, 2.20), 2)
+    # Mispricing — gentle (8-22%) so favourite odds remain realistic
     if value_bias:
         target = rng.choice(["over", "under", "btts_yes", "btts_no", "home", "away"])
-        boost = rng.uniform(1.18, 1.45)  # 18-45% odds boost = clear value
+        boost = rng.uniform(1.08, 1.22)
         if target == "over": over25 = round(over25 * boost, 2)
         elif target == "under": under25 = round(under25 * boost, 2)
         elif target == "btts_yes": btts_yes = round(btts_yes * boost, 2)
@@ -80,33 +80,31 @@ def _football_odds(rng: random.Random, value_bias: bool = False) -> dict:
     dnb_away = round(away * rng.uniform(0.85, 0.93), 2)
     return {
         "1X2": {"home": home, "draw": draw, "away": away},
-        "DC": {"1X": dc_1x, "X2": dc_x2, "12": round(rng.uniform(1.20, 1.45), 2)},
+        "DC": {"1X": dc_1x, "X2": dc_x2, "12": round(rng.uniform(1.18, 1.40), 2)},
         "DNB": {"home": dnb_home, "away": dnb_away},
         "OU_2_5": {"over": over25, "under": under25},
         "BTTS": {"yes": btts_yes, "no": btts_no},
-        "AH_HOME_-0_5": round(rng.uniform(1.70, 2.30), 2),
-        "AH_AWAY_+0_5": round(rng.uniform(1.55, 2.10), 2),
+        "AH_HOME_-0_5": round(rng.uniform(1.65, 2.20), 2),
+        "AH_AWAY_+0_5": round(rng.uniform(1.55, 2.05), 2),
     }
 
 
 def _basketball_odds(rng: random.Random, value_bias: bool = False) -> dict:
-    ml_home = round(rng.uniform(1.35, 3.20), 2)
-    ml_away = round(rng.uniform(1.35, 3.20), 2)
-    spread = round(rng.uniform(2.5, 12.5) * 2) / 2
+    ml_home = round(rng.uniform(1.30, 2.80), 2)
+    ml_away = round(rng.uniform(1.30, 2.80), 2)
+    spread = round(rng.uniform(2.5, 11.5) * 2) / 2
     spread_home = round(rng.uniform(1.85, 1.95), 2)
     spread_away = round(rng.uniform(1.85, 1.95), 2)
     total_pts = round(rng.uniform(205, 235) * 2) / 2
     over_total = round(rng.uniform(1.85, 1.95), 2)
     under_total = round(rng.uniform(1.85, 1.95), 2)
     if value_bias:
-        target = rng.choice(["ml_home", "ml_away", "over", "under", "spread_home", "spread_away"])
-        boost = rng.uniform(1.18, 1.40)
+        target = rng.choice(["ml_home", "ml_away", "over", "under"])
+        boost = rng.uniform(1.08, 1.20)
         if target == "ml_home": ml_home = round(ml_home * boost, 2)
         elif target == "ml_away": ml_away = round(ml_away * boost, 2)
         elif target == "over": over_total = round(over_total * boost, 2)
         elif target == "under": under_total = round(under_total * boost, 2)
-        elif target == "spread_home": spread_home = round(spread_home * boost, 2)
-        elif target == "spread_away": spread_away = round(spread_away * boost, 2)
     return {
         "ML": {"home": ml_home, "away": ml_away},
         "SPREAD": {"line": spread, "home": spread_home, "away": spread_away},
@@ -163,7 +161,7 @@ def generate_fixtures_for_date(date_str: str, max_per_sport: int = 7) -> List[Fi
         home, away = rng.sample(teams_pool, 2)
         feats = _make_match_features(rng, "football")
         kickoff = (base_dt + timedelta(hours=rng.randint(0, 8), minutes=rng.choice([0, 15, 30, 45]))).isoformat()
-        value_bias = rng.random() < 0.65  # 65% of fixtures have a clear value edge somewhere
+        value_bias = rng.random() < 0.35  # 35% mispriced (gentler boosts so favourites stay short)
         fixtures.append(Fixture(
             sport="football",
             league=league,
@@ -193,7 +191,7 @@ def generate_fixtures_for_date(date_str: str, max_per_sport: int = 7) -> List[Fi
         home, away = rng.sample(teams_pool, 2)
         feats = _make_match_features(rng, "basketball")
         kickoff = (base_dt + timedelta(hours=rng.randint(0, 8), minutes=rng.choice([0, 30]))).isoformat()
-        value_bias = rng.random() < 0.65
+        value_bias = rng.random() < 0.35
         fixtures.append(Fixture(
             sport="basketball",
             league=league,

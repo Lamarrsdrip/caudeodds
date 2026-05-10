@@ -38,8 +38,8 @@ async def run_pipeline(date_str: str, settings: Settings) -> Tuple[List[Pick], L
     results = await asyncio.gather(*[analyze(fx) for fx in kept])
 
     candidate_picks: List[Pick] = []
-    for fx, (q, r) in results:
-        pick, rej = evaluate(fx, q, r, settings, date_str)
+    for fx, (q, r, research) in results:
+        pick, rej = evaluate(fx, q, r, settings, date_str, research=research)
         if pick is not None:
             candidate_picks.append(pick)
         elif rej is not None:

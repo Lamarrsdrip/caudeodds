@@ -71,10 +71,18 @@ def evaluate(
     reasoning: ReasoningOutput | None,
     settings: Settings,
     date_str: str,
+    research: dict | None = None,
 ) -> Tuple[Pick | None, RejectionLog | None]:
     match = f"{fx.home} vs {fx.away}"
 
     if quant is None or reasoning is None:
+        # Could be due to research-quality gate
+        if research is not None and float(research.get("research_quality_score", 0)) < 35:
+            return None, RejectionLog(
+                date=date_str, match=match, sport=fx.sport,
+                reason_code="LOW_RESEARCH",
+                reason=f"Research quality {research.get('research_quality_score', 0):.0f}/100 — insufficient verifiable facts",
+            )
         return None, RejectionLog(
             date=date_str, match=match, sport=fx.sport,
             reason_code="MODEL_ERROR", reason="One or both AI models failed to respond",
@@ -87,7 +95,7 @@ def evaluate(
         return None, RejectionLog(
             date=date_str, match=match, sport=fx.sport,
             reason_code="REASONING_NO_BET",
-            reason=f"Reasoning agent recommends NO_BET. Flags: {', '.join(reasoning.red_flags[:3]) or 'none'}",
+            reason=f"Tactical agent returned NO_BET. Flags: {', '.join(reasoning.red_flags[:3]) or 'none'}",
         )
     if quant_side != reason_side or quant_side == "NONE":
         return None, RejectionLog(
@@ -95,6 +103,16 @@ def evaluate(
             reason_code="DISAGREEMENT",
             reason=f"Side mismatch: quant={quant_side}({quant.market}) vs reasoning={reason_side}({reasoning.recommended_market})",
         )
+
+    # Research consensus check (3rd guardrail)
+    if research is not None:
+        rd = (research.get("consensus_direction") or "").upper()
+        if rd and rd != "NONE" and rd != quant_side:
+            return None, RejectionLog(
+                date=date_str, match=match, sport=fx.sport,
+                reason_code="EVIDENCE_CONFLICT",
+                reason=f"Research evidence points {rd}, but models picked {quant_side} — refusing trade",
+            )
 
     ensemble_conf = (quant.confidence + reasoning.tactical_confidence) / 2
     if ensemble_conf < settings.min_confidence:

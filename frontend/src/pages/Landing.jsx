@@ -104,12 +104,12 @@ export default function Landing() {
           <h2 className="font-heading font-black text-3xl tracking-tight mb-12">HOW IT WORKS</h2>
           <div className="grid md:grid-cols-3 gap-px bg-[#262626] border border-[#262626]">
             {[
-              { Icon: BarChart3, title: "1. Ingest the Slate", body: "Live odds, line movement, sharp money %, public bias, injuries, xG, pace, fatigue, weather, referee tendency." },
-              { Icon: Zap, title: "2. Dual AI Ensemble", body: "GPT‑4o‑mini runs the quant analysis. Claude Haiku 4.5 runs the tactical review. Both must agree on the side direction." },
-              { Icon: Shield, title: "3. Discipline Filter", body: "We reject low‑liquidity, suspicious moves, hyped public traps, narrative risk, and EV‑negative bets — even if you'd love them." },
-              { Icon: TrendingUp, title: "4. One Combined Slip", body: "2–5 legs, multiplied odds, ensemble confidence, expected value. If the bar isn't met, no slip is published." },
-              { Icon: Globe, title: "5. SportyBet Ready", body: "Decimal odds, NGN-friendly format, copyable SportyBet booking code, deep-link to open the platform." },
-              { Icon: Lock, title: "6. Subscriber‑Only", body: "3-day free trial. ₦5,000/month or local bank transfer. Cancel anytime. Admin reviews bank proofs same day." },
+              { Icon: BarChart3, title: "1. Scan the slate", body: "Live odds, line movement, sharp money %, public bias, injuries, xG, pace, fatigue, weather, referee tendency — all 14+ signals per fixture." },
+              { Icon: Globe, title: "2. Research first (Claude)", body: "Anthropic-style research agent extracts SPECIFIC verifiable facts, scores each one's credibility 0-100, and refuses if evidence is thin. No vibes, no guessing." },
+              { Icon: Zap, title: "3. Quant + Tactical (GPT + Claude)", body: "GPT computes fair probability, EV and edge from research. Claude independently picks tactics. Both must agree on the same SIDE or the bet is killed." },
+              { Icon: Shield, title: "4. Triple-gate consensus", body: "Side-direction match · EV ≥ 2% · confidence ≥ 60% · research evidence direction matches model picks. Anything that fails → no bet." },
+              { Icon: TrendingUp, title: "5. One combined slip · 2.00–5.00 odds", body: "We greedy-pack 3–5 highest-confidence games while keeping combined odds inside the easy-win range. Cap is 5.00, no exceptions." },
+              { Icon: Lock, title: "6. SportyBet ready", body: "Decimal NGN odds. Copyable booking code. 1-tap 'Open in SportyBet'. 3-day free trial. ₦5,000/month or local bank transfer." },
             ].map((f, i) => (
               <div key={i} className="bg-[#121212] p-8">
                 <f.Icon className="w-6 h-6 text-[#00ff66] mb-4" strokeWidth={1.5} />
