@@ -267,7 +267,7 @@ async def slip_today(request: Request):
             "odds": leg.odds, "confidence": 0, "edge_pct": 0,
             "kickoff": leg.kickoff, "reasoning": "",
         } for leg in slip.legs]
-        teaser["sportybet_code"] = "LOCKED"
+        teaser["sportybet_code"] = ""
         teaser["summary"] = (
             f"{slip.leg_count}-leg slip ready. Subscribe to unlock the picks, the SportyBet booking code, "
             f"and the full AI ensemble reasoning."

@@ -1,106 +1,72 @@
-# CLAUDEODD — Product Requirements Document
+# ClaudeOdds — PRD
 
 ## Original Problem Statement
-Build a realistic long-term profitable AI sports betting intelligence platform for Nigerian users. Combine Claude + GPT as a multi-agent ensemble. Output ONE combined daily 2-5 leg slip in SportyBet format. SaaS subscription model: 18+ age gate, 3-day free trial, monthly subscription via Flutterwave or manual bank transfer with admin approval. Full admin dashboard to configure everything (Flutterwave keys, bank details, prices, SMTP, Telegram) at runtime.
+Build a realistic, long-term profitable AI sports betting intelligence SaaS using a multi-agent ensemble (Claude + GPT). Users pay a monthly subscription (₦5,000/month) for one combined daily slip with total odds 2.0–5.0, mixing football & basketball, plus a SportyBet booking code. Trial is 3 days. Brand: "ClaudeOdds" with "Made by emriz.eth" footer.
 
-## User Choices
-- Platform: **CLAUDEODD**
-- Budget: ≤ $10/month LLM spend
-- Stack: React + FastAPI + MongoDB
-- AI: Claude Haiku 4.5 + GPT-4o-mini (Emergent Universal LLM Key)
-- Currency: NGN (₦)
-- SportyBet: deterministic booking-code generator + deep-link
-- Auth: Email/password + JWT (no Google OAuth in Phase 1)
-- Admin everything-configurable in dashboard
+## CRITICAL: Real-money production app
+The user has emphasized this is NOT a demo. People bet real money. Every fixture, every price, every booking code MUST be real, not synthetic.
 
 ## Architecture
-```
-Frontend (React Router DOM v7 + shadcn + recharts)
-  ↳ Public:    / (Landing), /pricing, /login, /register, /payment/callback
-  ↳ User:      /dashboard (combined slip + history), /subscription
-  ↳ Admin:     /admin (Overview, Users, Payments, Predictions, Configuration)
+- Backend: FastAPI + MongoDB + Motor (async)
+- Frontend: React (CRA) + Tailwind + shadcn/ui
+- AI: Anthropic Claude Haiku 4.5 + OpenAI GPT-4o-mini via Emergent LLM Key
+- Sports data: The Odds API (free tier, key in backend/.env as THE_ODDS_API_KEY)
+- Payments: Flutterwave (sandbox by default) + manual bank transfer with admin proof approval
+- PWA: manifest, install prompt, transparent logo
 
-Backend (FastAPI + Motor + emergentintegrations + Flutterwave + bcrypt + PyJWT)
-  ↳ auth.py             — register/login + JWT + bcrypt + email-only lockout (K8s-safe)
-  ↳ subscriptions.py    — trial/active/expired state machine
-  ↳ payments.py         — Flutterwave init/verify/webhook + bank transfer (DB-config keys)
-  ↳ slip_builder.py     — combined parlay + SportyBet code (SB-XXXXXX-XXXX) + deep-link
-  ↳ data_engine.py      — deterministic fixture/odds (drop-in for The Odds API)
-  ↳ filters.py          — NO BAD BETS pre-filter (6 checks)
-  ↳ llm_engines.py      — parallel Claude + GPT, side-direction consensus
-  ↳ consensus.py + pipeline.py — orchestration (cached daily, idempotent)
-  ↳ saas_models.py + models.py — Pydantic schemas
-  ↳ server.py           — All routes (/api/auth/*, /slip/*, /payments/*, /admin/*)
-```
+## Implemented (Cumulative)
 
-## Endpoints (`/api/*`)
-**Auth:** register, login (email-only lockout 5×/15min), me, logout
-**Slip:** today (locked teaser if anon, full if subscribed), history, generate (admin)
-**Payments:** flutterwave/init, flutterwave/verify, flutterwave/webhook (HMAC), bank-transfer, mine
-**Admin:** stats, users (list, grant 30d, suspend), payments (list, approve, reject), predictions (list, settle), config (GET masked secrets, POST preserves masked), rejected
-**Public:** /public/config, /
+### Phase 1 — Core SaaS (earlier sessions)
+- JWT auth (register/login/me/logout, brute-force protection by email)
+- 3-day free trial on registration
+- Subscription gating, paid status check
+- Admin panel: stats, users, payments approval, configuration, predictions, rejected log
+- Flutterwave init/verify/webhook + bank transfer proof flow
+- Multi-agent AI pipeline: Research (Claude) → Quant (GPT) → Tactical (Claude) → Consensus
+- Slip builder: greedy-pack 3-5 picks into 2.0-5.0 combined odds
+- PWA install prompt, dark theme, EmrizFooter brand
+- Branding: "ClaudeOdds" + "AI BETTING COMPANION" tagline
 
-## What's Been Implemented (Phase 2.2 — 2026-02-10)
-✅ **Brand renamed to "ClaudeOdds"** (with the s) — header, copy, manifest, OG tags, page titles, all UI strings, backend logger + FastAPI title
-✅ **Real SportyBet code format** — 6-char uppercase alphanumeric, no dashes (e.g. `SDW24H`, `B3K9XY`) using collision-safe alphabet (no 0/O/1/I)
-✅ **Match details on every leg** — country code badge (USA/ITA/ENG/...), league name, kickoff day (Today/Tomorrow/Sat) + 24-hour time, with Calendar/Clock/MapPin icons
-✅ **3-agent research pipeline** — Anthropic Skills-style: Claude RESEARCH agent extracts evidence-scored facts → GPT QUANT computes EV from research → Claude TACTICAL independently picks → triple-gate consensus (side-direction + research direction + EV/conf)
-✅ **Short-favourite preference** — slip builder penalises long odds in selection score so picks lean to safer favourites first
-✅ **Pre-filter (LOW_RESEARCH)** — research_quality_score < 35 → fixture rejected before quant/tactical even run (saves cost, enforces evidence-first)
-✅ **Removed all Emergent branding** from index.html (no badge, no PostHog, no emergent-main.js)
-✅ **PWA support** — manifest.json + custom icons (192/512/180/32) + apple-touch-icon meta tags + theme-color + viewport-fit=cover
-✅ **Install prompt** — Android `beforeinstallprompt` one-tap banner; iOS pill → "Add to Home Screen" instructions modal
-✅ **Deployment-ready** — deployment_agent passes (compilation OK, env files OK, no hardcoded secrets, CORS open, supervisor configs valid)
-✅ **Bug fixes** — InstallPrompt iOS pill→modal flow (was unreachable), broken duplicate CORS middleware in server.py, EmrizFooter applied consistently across all pages, removed unused old Header.jsx
+### Phase 2 — Real data refactor (this session, 2026-05-10)
+- ✅ **Real fixtures via The Odds API** — replaced mock `data_engine.py` (was generating synthetic team names from a hardcoded pool) with real bookmaker-aggregated fixtures from `https://api.the-odds-api.com/v4`. New file `odds_api_service.py` fetches 7 football leagues (EPL, La Liga, Serie A, Bundesliga, Ligue 1, Champions League, Europa League) + 2 basketball leagues (NBA, EuroLeague). Caches active sports list. Aggregates odds across 5-15 books, derives sharp/public split + liquidity + volatility from book dispersion.
+- ✅ **No more fake SportyBet codes** — removed `make_sportybet_code()` (hash-based fake generator). Slip now ships with empty `sportybet_code` by default. Admin pastes the real code from SportyBet into a new admin field; subscribers see "Booking code being prepared" with manual-entry instructions until then.
+- ✅ **New endpoints**: `GET /api/admin/slip/code`, `POST /api/admin/slip/code`. New collection `claudeodd_slip_codes` (keyed by date).
+- ✅ **Background-job pipeline** — `/api/slip/generate` was timing out at the K8s ingress (~60s) because real-data pipeline takes 90-180s. Now returns `{status:'running', job_id}` in <1s and runs the ensemble in `asyncio.create_task`. New polling endpoint `GET /api/slip/generate/status/{job_id}`. Frontend `AdminPredictions` polls every 4s until completion. New collection `claudeodd_jobs`.
+- ✅ **Event-loop responsiveness fix** — LLM calls (LiteLLM/emergentintegrations) were blocking the asyncio event loop, making the entire app feel slow during pipeline runs. Wrapped each call in `asyncio.to_thread(...)` so other API requests stay responsive (verified <15ms response times during a running pipeline).
+- ✅ **Updated LLM prompts** — research/quant/tactical agents now treat bookmaker market dispersion as the PRIMARY signal (instead of expecting injury/xG/weather data which the free tier doesn't provide). Lowered research-quality threshold from 35 to 25.
+- ✅ **Logo wired** — `/logo-icon.png` (background-removed user upload) now renders in `AppHeader` on every page.
+- ✅ **Polished**: data-testids added to admin SportyBet code controls; `LOCKED` placeholder removed from teaser code; concurrency raised from 6→12 ensemble workers.
 
-## What's Been Implemented (Phase 2 — 2026-02-10)
-✅ **Auth + 18+ age gate** — bcrypt + JWT (7-day) + Terms acceptance + DOB
-✅ **Brute-force lockout** — email-only identifier (K8s pod-rotation safe)
-✅ **Free trial** — 3 days auto-started on registration
-✅ **Subscription state machine** — trial → active → expired with grace
-✅ **Flutterwave** — Standard checkout init + verify + webhook (HMAC sig); keys in MongoDB admin_config
-✅ **Manual bank transfer** — base64 receipt upload (3MB cap) + admin approve/reject
-✅ **Combined daily slip** — single slip, no individual cards in user UI
-✅ **SportyBet integration** — deterministic booking code (SB-XXXXXX-XXXX), Copy + Open in SportyBet buttons
-✅ **Public landing + pricing** — locked teaser + ₦5,000/mo + free trial CTA
-✅ **Admin panel** — Overview KPIs, Users (grant/suspend), Payments (approve/reject + receipt viewer), Predictions (W/L/V settle), Configuration (5 sections, masked secrets)
-✅ **Locked teaser endpoint** — anon visitors see slip shape but legs masked
-✅ **29/30 backend tests + 85% frontend tests passing**
+## Validated
+- Real fixtures verified end-to-end: Nottingham Forest vs Newcastle, AC Milan vs Atalanta, Bayern Munich vs Eintracht Frankfurt, 76ers vs Knicks, Fiorentina vs Genoa, Mallorca vs Villarreal, Crystal Palace vs Everton, Rayo Vallecano vs Girona, Oviedo vs Getafe (2026-05-10/11).
+- Pipeline run: 16 real fixtures analyzed → 7 picks → combined odds 4.0, conf 89%, EV +18.5%.
+- Background job pattern confirmed: POST returns in <1s, polling resolves to completed status.
+- Concurrent responsiveness during pipeline: /api/auth/me and /api/slip/today both respond in 12-14ms.
+- Admin SportyBet code endpoints + UI (input → publish → live indicator → reflect in subscriber slip).
+- 17/19 backend pytest cases pass.
 
-## Cost Profile
-- 1 daily generation × ~12 LLM calls × $0.001 ≈ **$0.40/month** ✅ under $10/mo budget
+## Backlog / Roadmap
 
-## Subscription Defaults (admin-editable)
-- price_ngn: 5,000
-- trial_days: 3
-- plan_label: "VIP Daily Slip"
+### P0 (blockers for production confidence)
+- **Cron schedule for daily run** — currently admin must click "Force Re-Generate" each day. Add a daily cron (e.g. APScheduler) that auto-runs the pipeline at a fixed UTC hour and notifies admin to paste the SportyBet code.
+- **Brute-force lockout fix** for K8s IP-rotation (carry-over from iter_2; current workaround uses email as identifier).
 
-## Test Credentials (`/app/memory/test_credentials.md`)
-- Admin: `admin@claudeodd.com` / `Admin@2026`
+### P1 (revenue / UX)
+- Web Push notifications when admin publishes the SportyBet code (the moment subscribers most need a ping).
+- Live Flutterwave keys configuration UI (currently sandbox).
+- Admin payment-proof viewer + larger image preview.
+- Slip history performance: paginate beyond 60-day window.
 
-## Backlog
+### P2 (data depth)
+- Integrate API-Football for injury/lineup/form/xG data — would significantly improve pick approval rate and confidence (currently the AI rejects ~50% of fixtures due to thin context).
+- Historical accuracy dashboard (won/lost/void per day, ROI tracking).
+- Push the daily slip to a Telegram channel as well.
 
-### P0 (next iteration)
-- [ ] Plug **The Odds API** for live odds (replace mock data_engine)
-- [ ] **Email verification + password reset** (needs admin to fill SMTP in Configuration)
-- [ ] **Telegram bot** to push daily slips to subscribers
-- [ ] **Real SportyBet booking-code injection** (admin can paste real codes per slip)
+## Tech Choices Locked In
+- DON'T modify supervisor configs.
+- DON'T break CORS.
+- DO use REACT_APP_BACKEND_URL on the frontend; MONGO_URL/DB_NAME on the backend.
+- DO route all backend endpoints through `/api`.
 
-### P1
-- [ ] Google OAuth login (Emergent-managed)
-- [ ] Coupons + referrals + leaderboard
-- [ ] Email broadcasts (admin-composed templates)
-- [ ] Push notifications (web + mobile)
-- [ ] Self-learning weekly retrain (auto-tune thresholds from rejection-code performance)
-
-### P2
-- [ ] WhatsApp integration
-- [ ] Multi-language (English / Pidgin / Yoruba / Igbo / Hausa)
-- [ ] Mobile app APIs (iOS/Android)
-- [ ] Audit logs UI
-- [ ] Encrypt-at-rest for admin secrets (currently masked on read)
-
-## Known Minor Issues (non-blocking)
-- /api/payments/flutterwave/verify takes tx_ref via query param (cosmetic)
-- AdminConfig secrets stored plaintext in MongoDB (masked on GET)
-- 4MB body cap on bank-transfer enforced post-receive (no Content-Length pre-check)
+## Production Note
+The user has deployed this app to https://probability-vault.emergent.host. Bug reports should be checked against both preview AND production environments. Code fixes happen in preview only — production is updated via the platform's deploy step (not in this agent's scope).

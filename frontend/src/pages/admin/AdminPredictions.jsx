@@ -75,10 +75,10 @@ export default function AdminPredictions() {
       <div className="flex items-center justify-between">
         <h1 className="font-heading font-black text-3xl tracking-tight">PREDICTIONS</h1>
         <div className="flex items-center gap-2">
-          <button onClick={() => generate(false)} disabled={busy} data-testid="pred-gen" className="border border-[#262626] hover:bg-[#1a1a1a] font-mono text-xs uppercase tracking-widest px-4 py-2 disabled:opacity-50">
+          <button onClick={() => generate(false)} disabled={busy} data-testid="generate-cached-btn" className="border border-[#262626] hover:bg-[#1a1a1a] font-mono text-xs uppercase tracking-widest px-4 py-2 disabled:opacity-50">
             {busy ? "Running…" : "Generate (cached)"}
           </button>
-          <button onClick={() => generate(true)} disabled={busy} data-testid="pred-gen-force" className="bg-[#00ff66] text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 hover:bg-[#f5f5f5] disabled:opacity-50">
+          <button onClick={() => generate(true)} disabled={busy} data-testid="force-regen-btn" className="bg-[#00ff66] text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 hover:bg-[#f5f5f5] disabled:opacity-50">
             {busy ? "Running…" : "Force Re-Generate"}
           </button>
         </div>
@@ -97,27 +97,28 @@ export default function AdminPredictions() {
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             placeholder="e.g. STQLE2"
             maxLength={12}
-            data-testid="sb-code-input"
+            data-testid="sportybet-code-input"
             className="bg-[#0a0a0a] border border-[#262626] focus:border-[#00ff66] outline-none font-mono text-2xl tracking-[0.2em] px-4 py-3 w-64 uppercase"
           />
           <button
             onClick={saveCode}
             disabled={savingCode || code.trim().toUpperCase() === savedCode}
-            data-testid="sb-code-save"
+            data-testid="publish-code-btn"
             className="bg-[#00ff66] text-[#050505] font-mono text-xs uppercase tracking-widest px-5 py-3 hover:bg-[#f5f5f5] disabled:opacity-50"
           >
-            {savingCode ? "Saving…" : savedCode ? "Update Code" : "Publish Code"}
+            {savingCode ? "Saving…" : "Publish Code"}
           </button>
           {savedCode && (
             <button
               onClick={() => { setCode(""); }}
+              data-testid="clear-code-btn"
               className="border border-[#262626] hover:bg-[#1a1a1a] font-mono text-xs uppercase tracking-widest px-4 py-3"
             >
               Clear
             </button>
           )}
           {savedCode && (
-            <span className="font-mono text-[10px] uppercase tracking-widest text-[#00ff66] inline-flex items-center gap-2">
+            <span data-testid="live-code-indicator" className="font-mono text-[10px] uppercase tracking-widest text-[#00ff66] inline-flex items-center gap-2">
               ● Live to subscribers: <code className="text-[#f5f5f5]">{savedCode}</code>
             </span>
           )}

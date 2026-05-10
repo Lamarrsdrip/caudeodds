@@ -194,10 +194,26 @@ async def _llm(model_provider: tuple, system: str, payload: str, session_prefix:
         system_message=system,
     ).with_model(*model_provider)
     try:
-        raw = await chat.send_message(UserMessage(text=payload))
+        # LiteLLM's send_message can block the asyncio event loop on long calls
+        # (it calls into sync libraries internally). Offload to a worker thread
+        # so other API requests (auth, slip/today, admin) remain responsive
+        # while the daily ensemble pipeline is running.
+        raw = await asyncio.to_thread(_run_chat_sync, chat, payload)
+        if raw is None:
+            return None
         return json.loads(_strip_json(raw))
     except Exception as e:
         logger.warning("LLM call failed [%s]: %s", session_prefix, e)
+        return None
+
+
+def _run_chat_sync(chat: "LlmChat", payload: str) -> str | None:
+    """Run an async LlmChat.send_message inside its own dedicated event loop in
+    a worker thread, so the main FastAPI loop is never blocked by LLM IO."""
+    try:
+        return asyncio.run(chat.send_message(UserMessage(text=payload)))
+    except Exception as e:
+        logger.warning("LLM sync wrapper failed: %s", e)
         return None
 
 
