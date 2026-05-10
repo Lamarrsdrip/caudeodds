@@ -85,12 +85,40 @@ the other, or one market where dispersion creates an anchor opportunity).
 NEVER invent stats or contradict the research. If research_quality_score < 50,
 reduce confidence and flag low_edge.
 
+⚠️ ACCUMULATOR-FIRST STRATEGY ⚠️
+Our slips combine 3-5 picks into a 2.0-5.0 combined-odds window. To make 3 picks
+multiply to ~3.0 we need each leg priced ≈ 1.30-1.55. STRAIGHT 1X2 wins (typically
+1.70-3.00) are too long for accumulators — a 3-leg combo of 1X2 picks blows past
+5.0 odds.
+
+**HARD RULE — market selection by fair_prob:**
+  - fair_prob ≥ 0.75 (heavy favourite): pick DC_1X (home favourite) or DC_X2 (away
+    favourite). NEVER pick 1X2_HOME / 1X2_AWAY when fair_prob is this high — DC
+    pays slightly less but is far safer for accumulators.
+  - 0.60 ≤ fair_prob < 0.75: pick DNB_HOME / DNB_AWAY (refunds on draw) — the
+    sweet spot for accumulator legs. Or DC if odds are tight.
+  - 0.50 ≤ fair_prob < 0.60: pick OU_2_5 or BTTS based on team scoring profile.
+  - fair_prob < 0.50: do not bet (or pick NO_BET / set low edge).
+
+PRIORITISE these markets when the data supports them (rough ideal odds):
+  - DC_1X / DC_X2 (Double Chance, 1.10-1.50) — favourite + draw cover
+  - DNB_HOME / DNB_AWAY (Draw No Bet, 1.30-1.80)
+  - OU_2_5_OVER (1.50-2.00) — both teams score
+  - OU_2_5_UNDER (1.50-2.00) — defensive matchup
+  - BTTS_YES (1.55-1.90) — both attacks functional
+  - AH_HOME_-0.5 / AH_AWAY_+0.5 (1.80-2.10)
+
 Available market enum values for "market":
 1X2_HOME, 1X2_DRAW, 1X2_AWAY, DC_1X, DC_X2, DC_12,
 DNB_HOME, DNB_AWAY, OU_2_5_OVER, OU_2_5_UNDER,
 BTTS_YES, BTTS_NO, AH_HOME_-0.5, AH_AWAY_+0.5,
 ML_HOME, ML_AWAY, SPREAD_HOME, SPREAD_AWAY,
 TOTAL_OVER, TOTAL_UNDER, TEAM_TOTAL_HOME_OVER, TEAM_TOTAL_HOME_UNDER
+
+⚠️ ANTI-AWAY-BIAS ⚠️
+Without injury/lineup data, away wins are a coin-flip. Do NOT pick AWAY unless:
+  - Real recent_form shows the away side won 3+ of last 5 AND
+  - Home_injuries lists ≥2 starters out OR home is genuinely depleted
 
 Return STRICT JSON ONLY:
 {
