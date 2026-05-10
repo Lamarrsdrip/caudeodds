@@ -1,0 +1,50 @@
+{
+  "summary": "First-iteration full-stack testing of CLAUDEODD. Backend: 16/16 pytest cases PASSED (health, config, generate cached path, today/history/settle CRUD, parlay, ROI, rejected, sharp, serialization). Frontend: dashboard loads, all 5 tabs (Today's Picks/History/Analytics/Rejected/Settings) clickable, sharp marquee scrolls, picks board renders with consensus meter, settings save persists across reload, RUN ENSEMBLE button enabled. Settle workflow validated end-to-end via API (won settle on Real Madrid pick produced profit $28.17 = 16.57 * (2.7-1), bankroll updated to $1028.17, win_rate 100%, ROI 170%). Did NOT execute force=true generate (would consume ~60-180s of real LLM credits and 2 picks were already cached for 2026-05-10, per agent context). Cached generate path verified idempotent.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/analytics/roi", "issue": "Picks with status=void are bucketed into 'pending' counter (else branch in server.py L213). Should have a separate 'void' tally so settled count remains accurate."},
+      {"endpoint": "CORS middleware", "issue": "allow_credentials=True combined with allow_origins='*' (default) is invalid per CORS spec — browsers will refuse credentialed requests. Restrict origins or set credentials=False if only public reads are needed."},
+      {"endpoint": "/api/picks/{id}/settle", "issue": "No way to revert a settled pick back to 'pending' (Literal restricts to won/lost/void). Consider supporting 'pending' so testers/users can undo accidental settles."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AnalyticsView (Recharts)", "issue": "Console warning 'width(-1) and height(-1) of chart should be greater than 0' on tab switch. Chart still renders correctly but parent container has no measured size during initial paint. Add minHeight or aspect to ResponsiveContainer.", "selector": "Recharts ResponsiveContainer", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Pick cards (settled state)", "issues": ["Once a pick is settled, only the chosen status button (e.g. 'VOID' or 'WON') remains — no way to change the verdict from the UI. Consider showing all three with the chosen one highlighted, or adding a 'Reset' affordance."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(MINOR) Fix ROI counter so 'void' picks are tallied separately, not as 'pending'.",
+    "(MINOR) Tighten CORS configuration (allow_credentials vs '*' origin mismatch).",
+    "(MINOR) Add minHeight to Recharts ResponsiveContainer in AnalyticsView to silence width/height(-1) warnings.",
+    "(OPTIONAL) Allow settle endpoint to accept 'pending' for undo.",
+    "(OPTIONAL) Settled pick cards should show all settle buttons with active state highlighted."
+  ],
+  "critical_code_review_comments": [
+    "server.py L213 ROI loop: 'else: pending += 1' incorrectly groups void picks with pending. Add explicit elif for status=='void'.",
+    "server.py L194 ROI: docs are sorted by created_at, but PnL is calculated using created_at (not settled_at) for chronology, while the curve['t'] uses settled_at OR created_at — minor inconsistency for the bankroll curve x-axis ordering.",
+    "server.py L162-188 parlay: uses min(kelly_stake_pct)*0.5 as 'safest stake' which is a heuristic without theoretical basis; consider using product-of-fair-probs / combined-odds Kelly formula for accuracy.",
+    "Settings collection uses _id='main' as singleton; this works but consider a typed 'name' field instead of using _id as a business key.",
+    "EMERGENT_LLM_KEY is committed to /app/backend/.env in plaintext — confirmed it is the dev key per task brief but should not leak to production logs.",
+    "No rate-limiting or auth on /api/picks/generate?force=true — a user spamming this endpoint could rack up real LLM costs. Add a per-day cap or simple debouncer in the route."
+  ],
+  "updated_files": [
+    "/app/backend/tests/__init__.py",
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100% (16/16 pytest)", "frontend": "100% (all critical flows verified)"},
+  "test_credentials": "N/A — single-user app with no auth.",
+  "seed_data_creation": "Did not create new seed data. Used existing 2 cached picks for date 2026-05-10. As a side effect of settle tests, pick 'Chelsea vs Manchester City' was set to 'void' and 'Real Madrid vs Barcelona' was set to 'won'. Settings were briefly changed to 1500 then restored to 1000.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "1) Backend pytest at /app/backend/tests/backend_test.py — run with `cd /app/backend && pytest tests/backend_test.py -v`. 2) Force-generate (real LLM, ~60-180s) was NOT exercised due to cost. To test it: `curl -X POST 'https://probability-vault.preview.emergentagent.com/api/picks/generate?force=true' --max-time 240`. 3) Two picks remain in DB for 2026-05-10 with statuses {void, won}. ROI shows bankroll $1028.17, profit $28.17. 4) CRITICAL: Watch for cost — every force=true run hits Emergent LLM key with ~12+ parallel calls (semaphore=6).",
+  "rca of the issue": "No critical bugs found. All listed items are minor enhancements / design polish."
+}

@@ -1,34 +1,25 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
-}
+/* Component-level overrides for CLAUDEODD */
+.App { min-height: 100vh; background: var(--co-bg); }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+.co-divider { height: 1px; background: var(--co-border); width: 100%; }
+.co-card {
+    background: var(--co-surface);
+    border: 1px solid var(--co-border);
+    transition: border-color 120ms ease, background-color 120ms ease;
 }
+.co-card:hover { border-color: var(--co-border-focus); background: var(--co-surface-hover); }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+.co-tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border: 1px solid var(--co-border);
+    padding: 2px 6px;
+    color: var(--co-text-2);
 }
+.co-tag-pos { color: var(--co-pos); border-color: var(--co-pos); }
+.co-tag-neg { color: var(--co-neg); border-color: var(--co-neg); }
+.co-tag-warn { color: var(--co-warn); border-color: var(--co-warn); }
 
-.App-link {
-    color: #61dafb;
-}
-
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
-}
+.co-data { font-family: var(--font-mono); }
