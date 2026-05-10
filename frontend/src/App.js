@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import InstallPrompt from "@/components/InstallPrompt";
+import BottomNav from "@/components/BottomNav";
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
@@ -56,7 +57,8 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace/>}/>
         </Routes>
         <InstallPrompt />
-        <Toaster theme="dark" position="bottom-right"/>
+        <BottomNav />
+        <Toaster theme="dark" position="top-center"/>
       </BrowserRouter>
     </AuthProvider>
   );

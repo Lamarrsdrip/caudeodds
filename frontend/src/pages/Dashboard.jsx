@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import EmrizFooter from "@/components/EmrizFooter";
 import DailySlip from "@/components/DailySlip";
+import PushOptIn from "@/components/PushOptIn";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { Calendar, Clock, ShieldCheck } from "lucide-react";
@@ -61,25 +62,28 @@ export default function Dashboard() {
   const [locked, setLocked] = useState(true);
   const [history, setHistory] = useState([]);
   const [tab, setTab] = useState("today");
+  const [vapid, setVapid] = useState("");
 
   useEffect(() => {
     api.slipToday().then(d => { setSlip(d.slip); setLocked(d.locked); }).catch(() => {});
     api.slipHistory().then(setHistory).catch(() => setHistory([]));
+    api.publicConfig().then(c => setVapid(c.vapid_public_key || "")).catch(() => {});
   }, [user?.subscription_status]);
 
   return (
     <div className="min-h-screen bg-[#050505] text-[#f5f5f5]">
       <AppHeader />
-      <main className="max-w-[1300px] mx-auto px-6 py-10 space-y-6">
+      <main className="max-w-[1300px] mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-5 sm:space-y-6">
         <SubscriptionBanner user={user} />
+        <PushOptIn vapidPublicKey={vapid} />
 
-        <div className="flex items-center gap-0 border border-[#262626]">
+        <div className="flex items-center gap-0 border border-[#262626] overflow-x-auto">
           {[
             { id: "today", label: "Today's Slip" },
-            { id: "history", label: "Slip History" },
+            { id: "history", label: "History" },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} data-testid={`dash-tab-${t.id}`}
-                    className={`font-mono uppercase tracking-widest text-[11px] px-5 py-3 border-r border-[#262626] transition-colors ${
+                    className={`font-mono uppercase tracking-widest text-[11px] px-5 py-3 border-r border-[#262626] transition-colors whitespace-nowrap ${
                       tab === t.id ? "bg-[#f5f5f5] text-[#050505]" : "text-[#a3a3a3] hover:bg-[#1a1a1a] hover:text-[#f5f5f5]"
                     }`}>
               {t.label}
@@ -89,8 +93,8 @@ export default function Dashboard() {
 
         {tab === "today" && (
           <div>
-            <h1 className="font-heading font-black text-3xl tracking-tight mb-2">TODAY'S COMBINED SLIP</h1>
-            <p className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mb-6">
+            <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight mb-2">TODAY'S COMBINED SLIP</h1>
+            <p className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mb-5 sm:mb-6">
               // {slip ? `${slip.leg_count} legs · published by AI ensemble` : "Awaiting today's run…"}
             </p>
             <DailySlip slip={slip} locked={locked} onSubscribe={locked ? () => (window.location.href = "/subscription") : null} />
@@ -98,20 +102,20 @@ export default function Dashboard() {
         )}
 
         {tab === "history" && (
-          <div className="space-y-6">
-            <h1 className="font-heading font-black text-3xl tracking-tight">SLIP HISTORY</h1>
+          <div className="space-y-5 sm:space-y-6">
+            <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight">SLIP HISTORY</h1>
             {history.length === 0 ? (
               <div className="co-card p-12 text-center font-mono text-[10px] uppercase tracking-widest text-[#525252]">
                 No history yet
               </div>
             ) : history.map(s => (
               <div key={s.date} className="co-card p-5" data-testid={`hist-slip-${s.date}`}>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <div>
                     <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">{s.date}</div>
                     <div className="font-heading font-bold">{s.leg_count}-leg @ {s.combined_odds?.toFixed(2)}</div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {s.status_summary?.won > 0 && <span className="co-tag co-tag-pos">{s.status_summary.won} W</span>}
                     {s.status_summary?.lost > 0 && <span className="co-tag co-tag-neg">{s.status_summary.lost} L</span>}
                     {s.status_summary?.void > 0 && <span className="co-tag">{s.status_summary.void} V</span>}

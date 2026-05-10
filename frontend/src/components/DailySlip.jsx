@@ -60,9 +60,9 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
   const codeReady = !!slip.sportybet_code && slip.sportybet_code !== "LOCKED";
 
   return (
-    <div className="space-y-5" data-testid="daily-slip">
-      {/* KPI strip */}
-      <div className="grid grid-cols-2 md:grid-cols-5 border border-[#262626]" data-testid="slip-kpis">
+    <div className="space-y-4 sm:space-y-5" data-testid="daily-slip">
+      {/* KPI strip — 2 cols on mobile, 5 on desktop */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 border border-[#262626]" data-testid="slip-kpis">
         {[
           ["Legs", slip.leg_count],
           ["Combined Odds", slip.combined_odds?.toFixed(2)],
@@ -70,43 +70,45 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
           ["EV", `${slip.expected_value > 0 ? "+" : ""}${(slip.expected_value * 100).toFixed(1)}%`],
           ["Risk", slip.risk_level],
         ].map(([k, v], i) => (
-          <div key={k} className={`p-5 ${i < 4 ? "border-r border-[#262626]" : ""} border-b md:border-b-0 border-[#262626]`}>
+          <div key={k} className="p-4 sm:p-5 border-b sm:border-b-0 sm:border-r last:border-r-0 border-[#262626]">
             <div className="text-[10px] font-mono uppercase tracking-widest text-[#525252]">{k}</div>
-            <div className={`font-mono text-2xl mt-1 ${k === "EV" ? evColor : ""}`}>{v}</div>
+            <div className={`font-mono text-xl sm:text-2xl mt-1 ${k === "EV" ? evColor : ""}`}>{v}</div>
           </div>
         ))}
       </div>
 
       {/* SportyBet bar */}
       {codeReady ? (
-        <div className="co-card p-5 flex items-center justify-between flex-wrap gap-4" data-testid="sportybet-bar">
-          <div className="flex items-center gap-4">
-            <div className="px-3 py-1 bg-[#00ff66] text-[#050505] font-mono text-[10px] uppercase tracking-widest font-bold">
-              SportyBet Code
+        <div className="co-card p-4 sm:p-5" data-testid="sportybet-bar">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
+              <div className="px-3 py-1 bg-[#00ff66] text-[#050505] font-mono text-[10px] uppercase tracking-widest font-bold">
+                SportyBet Code
+              </div>
+              <code className="font-mono text-2xl sm:text-3xl font-black tracking-[0.2em]" data-testid="sportybet-code">{slip.sportybet_code}</code>
             </div>
-            <code className="font-mono text-3xl font-black tracking-[0.2em]" data-testid="sportybet-code">{slip.sportybet_code}</code>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={copyCode} data-testid="copy-code-btn" className="border border-[#262626] hover:border-[#525252] hover:bg-[#1a1a1a] font-mono text-[11px] uppercase tracking-widest px-4 py-2 inline-flex items-center gap-2">
-              {copied ? <><CheckCircle2 className="w-3.5 h-3.5 text-[#00ff66]"/> Copied</> : <><Copy className="w-3.5 h-3.5"/> Copy Code</>}
-            </button>
-            <a href={slip.sportybet_url} target="_blank" rel="noopener noreferrer" data-testid="open-sportybet"
-               className="bg-[#f5f5f5] text-[#050505] font-mono text-[11px] uppercase tracking-widest px-4 py-2 hover:bg-[#00ff66] inline-flex items-center gap-2">
-              <ExternalLink className="w-3.5 h-3.5"/> Open SportyBet
-            </a>
+            <div className="flex items-center gap-2">
+              <button onClick={copyCode} data-testid="copy-code-btn" className="flex-1 sm:flex-none border border-[#262626] hover:border-[#525252] hover:bg-[#1a1a1a] active:bg-[#262626] font-mono text-[11px] uppercase tracking-widest px-4 py-3 sm:py-2 inline-flex items-center justify-center gap-2 min-h-[44px]">
+                {copied ? <><CheckCircle2 className="w-3.5 h-3.5 text-[#00ff66]"/> Copied</> : <><Copy className="w-3.5 h-3.5"/> Copy</>}
+              </button>
+              <a href={slip.sportybet_url} target="_blank" rel="noopener noreferrer" data-testid="open-sportybet"
+                 className="flex-1 sm:flex-none bg-[#f5f5f5] text-[#050505] font-mono text-[11px] uppercase tracking-widest px-4 py-3 sm:py-2 hover:bg-[#00ff66] inline-flex items-center justify-center gap-2 min-h-[44px]">
+                <ExternalLink className="w-3.5 h-3.5"/> Open
+              </a>
+            </div>
           </div>
         </div>
       ) : !locked && (
-        <div className="co-card p-5 border-l-4 border-l-[#00ff66]" data-testid="sportybet-pending">
+        <div className="co-card p-4 sm:p-5 border-l-4 border-l-[#00ff66]" data-testid="sportybet-pending">
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-[#00ff66] shrink-0 mt-0.5" />
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="font-heading font-bold text-base">Booking code being prepared</div>
               <p className="text-sm text-[#a3a3a3] leading-relaxed mt-1">
                 SportyBet booking codes can only be issued by SportyBet itself. Our team is building today's slip on SportyBet now and will publish the real code here shortly. In the meantime you can manually add the picks below to your SportyBet slip.
               </p>
               <a href={slip.sportybet_url} target="_blank" rel="noopener noreferrer"
-                 className="mt-3 inline-flex items-center gap-2 bg-[#f5f5f5] text-[#050505] font-mono text-[11px] uppercase tracking-widest px-4 py-2 hover:bg-[#00ff66]">
+                 className="mt-3 inline-flex items-center gap-2 bg-[#f5f5f5] text-[#050505] font-mono text-[11px] uppercase tracking-widest px-4 py-3 hover:bg-[#00ff66] min-h-[44px]">
                 <ExternalLink className="w-3.5 h-3.5"/> Open SportyBet
               </a>
             </div>
@@ -130,8 +132,8 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
           const { day, time } = formatKickoff(l.kickoff);
           const isLocked = locked || l.market === "LOCKED";
           return (
-            <div key={i} className="p-5 flex items-start gap-4">
-              <div className="font-mono text-2xl text-[#525252] w-10 shrink-0">{String(i + 1).padStart(2, "0")}</div>
+            <div key={i} className="p-4 sm:p-5 flex items-start gap-3 sm:gap-4">
+              <div className="font-mono text-xl sm:text-2xl text-[#525252] w-8 sm:w-10 shrink-0">{String(i + 1).padStart(2, "0")}</div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <span className="co-tag">{l.sport.toUpperCase()}</span>
@@ -140,9 +142,9 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
                       <MapPin className="w-3 h-3"/>{l.country_code}
                     </span>
                   )}
-                  <span className="font-mono text-[10px] uppercase tracking-widest text-[#a3a3a3]">{l.league}</span>
+                  <span className="font-mono text-[10px] uppercase tracking-widest text-[#a3a3a3] truncate">{l.league}</span>
                   {(day || time) && (
-                    <span className="font-mono text-[10px] uppercase tracking-widest text-[#525252] inline-flex items-center gap-2 ml-auto">
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-[#525252] inline-flex items-center gap-2 sm:ml-auto">
                       <Calendar className="w-3 h-3"/>{day}
                       <Clock className="w-3 h-3 ml-1"/>{time}
                     </span>
@@ -155,15 +157,23 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
                   </div>
                 ) : (
                   <>
-                    <div className="font-heading font-bold text-base">{l.match}</div>
+                    <div className="font-heading font-bold text-base sm:text-lg leading-tight">{l.match}</div>
                     <div className="text-sm text-[#a3a3a3] mt-1">{l.selection_label}</div>
+                    <div className="flex items-center gap-3 mt-2">
+                      <span className="font-mono text-2xl sm:text-3xl font-bold sm:hidden">{l.odds?.toFixed(2)}</span>
+                      {l.confidence > 0 && (
+                        <span className="font-mono text-[10px] uppercase tracking-widest text-[#525252] sm:hidden">
+                          CONF {l.confidence.toFixed(0)}% · EDGE {l.edge_pct?.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
                     {l.reasoning && (
                       <p className="text-xs text-[#525252] mt-2 leading-relaxed line-clamp-2">{l.reasoning}</p>
                     )}
                   </>
                 )}
               </div>
-              <div className="text-right shrink-0">
+              <div className="text-right shrink-0 hidden sm:block">
                 <div className="font-mono text-3xl font-bold">{l.odds?.toFixed(2)}</div>
                 {!isLocked && l.confidence > 0 && (
                   <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mt-1">

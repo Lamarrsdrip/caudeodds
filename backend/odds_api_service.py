@@ -3,6 +3,10 @@
 Free tier: 500 req/month. We cache aggressively per-day in MongoDB so a
 typical day costs ~7 requests (one per league).
 
+The API key + base URL are admin-overridable via db.admin_config (fields
+`odds_api_key`, `odds_api_base_url`). If not set, fall back to .env
+THE_ODDS_API_KEY and the public The Odds API base URL.
+
 Docs: https://the-odds-api.com/liveapi/guides/v4/
 """
 from __future__ import annotations
@@ -17,9 +21,23 @@ import httpx
 
 logger = logging.getLogger("claudeodd.odds_api")
 
-BASE_URL = "https://api.the-odds-api.com/v4"
+DEFAULT_BASE_URL = "https://api.the-odds-api.com/v4"
 REGIONS = "uk,eu"  # uk + eu books for European leagues; us for NBA
 US_REGIONS = "us,uk,eu"
+
+# In-memory hint of which DB-overridden config to use (set by server.py at startup
+# and on admin config save). Read by _api_key / _base_url to avoid re-querying Mongo
+# on every request.
+_db_config: Dict[str, str] = {"odds_api_key": "", "odds_api_base_url": ""}
+
+
+def set_runtime_config(odds_api_key: str = "", odds_api_base_url: str = "") -> None:
+    """Called from server.py whenever admin config changes."""
+    if odds_api_key is not None:
+        _db_config["odds_api_key"] = (odds_api_key or "").strip()
+    if odds_api_base_url is not None:
+        _db_config["odds_api_base_url"] = (odds_api_base_url or "").strip()
+
 
 # Sport keys we ingest (must be in-season per The Odds API status)
 FOOTBALL_SPORT_KEYS = {
@@ -43,20 +61,24 @@ class TheOddsAPIError(Exception):
 
 
 def _api_key() -> str:
-    k = os.environ.get("THE_ODDS_API_KEY", "").strip()
+    k = (_db_config.get("odds_api_key") or os.environ.get("THE_ODDS_API_KEY", "")).strip()
     if not k:
         raise TheOddsAPIError(
-            "THE_ODDS_API_KEY not configured in backend/.env. "
-            "Get a free key at https://the-odds-api.com"
+            "No odds-API key configured. Set it in Admin → Configuration → Sports Data API "
+            "or in backend/.env as THE_ODDS_API_KEY (free key at https://the-odds-api.com)."
         )
     return k
+
+
+def _base_url() -> str:
+    return (_db_config.get("odds_api_base_url") or DEFAULT_BASE_URL).rstrip("/")
 
 
 async def _get(path: str, params: Optional[Dict] = None) -> Tuple[List, Dict]:
     """GET wrapper. Returns (json_body, response_headers)."""
     p = dict(params or {})
     p["apiKey"] = _api_key()
-    url = f"{BASE_URL}{path}"
+    url = f"{_base_url()}{path}"
     async with httpx.AsyncClient(timeout=20.0) as client:
         r = await client.get(url, params=p)
     if r.status_code == 401:

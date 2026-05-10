@@ -61,4 +61,8 @@ export const api = {
   adminRejected: (date) => client.get(`/admin/rejected${date ? `?date=${date}` : ""}`).then(r => r.data),
   adminGetSlipCode: (date) => client.get(`/admin/slip/code${date ? `?date=${date}` : ""}`).then(r => r.data),
   adminSetSlipCode: (code, date) => client.post(`/admin/slip/code`, { code, date }).then(r => r.data),
+  // Push
+  pushSubscribe: (subscription) => client.post(`/push/subscribe`, { subscription }).then(r => r.data),
+  pushUnsubscribe: (endpoint) => client.post(`/push/unsubscribe`, { endpoint }).then(r => r.data),
+  adminPushTest: (title, body) => client.post(`/admin/push/test`, { title, body }).then(r => r.data),
 };

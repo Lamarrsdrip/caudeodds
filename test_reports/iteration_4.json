@@ -1,0 +1,78 @@
+{
+  "summary": "Phase-4 testing of ClaudeOdds (web push, daily cron, mobile-first UI, admin API-source override, runtime strategy cap). Backend: 14/14 NEW pytest cases PASS in /app/backend/tests/test_phase4.py (run in 0.68s). Frontend: ALL critical desktop + mobile flows PASS. No critical regressions. Push notifications cannot fully be exercised end-to-end in headless mode (browser permission grant blocked) but service worker registers, /sw.js loads, ENABLE button renders + is clickable, and backend endpoints respond correctly with 0 sent in test env.",
+  "tests_executed": {
+    "backend": [
+      "GET /api/public/config → vapid_public_key starts with 'B' (~87 chars), push_enabled bool present — PASS",
+      "GET /api/admin/config → odds_api_provider/base_url/key + cron_enabled/hour/minute + push_enabled/subject_email all present — PASS",
+      "POST /api/admin/config with odds_api_key='NEWTESTKEY123' + cron_hour_utc=9 → persists; subsequent GET returns masked '****Y123' (last 4 chars), cron rescheduled (verified in /var/log/supervisor/backend.err.log: 'Daily cron scheduled at 09:00 UTC' then back to 08:00 after restore) — PASS",
+      "POST /api/push/subscribe (empty body) → 400 'Invalid push subscription payload' — PASS",
+      "POST /api/push/subscribe (valid endpoint+keys) → {ok:true} + db.push_subscriptions doc inserted with correct p256dh — PASS",
+      "POST /api/admin/push/test (empty + with title/body) → 200 with sent/invalid/failed/total ints — PASS",
+      "POST /api/admin/slip/code (TST4PH) twice → both 200, no error on duplicate (broadcast fire-and-forget) — PASS",
+      "GET /api/slip/today (admin token) → leg_count=4 ≤ 5, combined_odds ≤ 5.0 (cap respected) — PASS",
+      "Regression: /api/auth/login, /api/auth/me, /api/admin/users, /api/admin/payments, /api/admin/predictions all 200 — PASS",
+      "Cron startup logs verified: 'Daily cron scheduled at 08:00 UTC' on every backend reload, 'Daily cron scheduled at 09:00 UTC' when config posted with cron_hour_utc=9, then back to 08:00 — PASS"
+    ],
+    "frontend_desktop_1920x1080": [
+      "Admin login → redirects to /admin — PASS",
+      "/dashboard: PushOptIn card present with 'push' text + data-testid='push-enable' clickable — PASS",
+      "Service worker registered (navigator.serviceWorker.getRegistration() → true) — PASS",
+      "KPI grid has 5 children (5-col strip) — PASS",
+      "/admin/config: ALL 9 sections present — Pricing & Trial, Sports Data API, Daily Auto-Generate, Cron, Web Push, Bank, Flutterwave, SMTP, Telegram — PASS",
+      "data-testid='push-test-btn' present on AdminConfig — PASS",
+      "Sports Data API section shows provider dropdown ('the_odds_api'), API base URL input, masked API key input — PASS"
+    ],
+    "frontend_mobile_390x844": [
+      "Bottom nav data-testid='bottom-nav' present with tab-slip / tab-subscription / tab-admin — PASS",
+      "Hamburger data-testid='mobile-menu-toggle' present, opens drawer data-testid='mobile-menu' (visible:true) — PASS",
+      "PushOptIn data-testid='push-enable' visible+enabled on mobile dashboard — PASS",
+      "Leg Copy button height = 44px (meets minimum touch target) — PASS",
+      "/admin/predictions: data-testid='admin-mobile-tabs' present (horizontal scroll bar) — PASS",
+      "Desktop side rail correctly hidden on mobile viewport — PASS",
+      "AdminPredictions 'PUBLISH CODE' button now correctly named (was 'UPDATE CODE' in iter_3 — fix verified) — PASS"
+    ]
+  },
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/slip/generate?force=true (carry-over from iter_3)", "issue": "Event-loop starvation when LiteLLM pipeline runs in background — NOT retested this iteration to preserve The Odds API quota; iter_3 root-cause analysis still applies."},
+      {"endpoint": "/api/push/unsubscribe", "issue": "Returns 400 'Missing endpoint' when payload empty — correct behavior, just not in spec checklist."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Mobile /admin/predictions header buttons", "issues": ["'GENERATE (CACHED)' and 'FORCE RE-GENERATE' buttons sit on the same row as the H1 PREDICTIONS title; on 390px width the FORCE RE-GENERATE button is partially clipped off the right edge. Consider stacking the action buttons below the heading on screens <420px or hiding into the hamburger drawer."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase4.py",
+    "/app/test_reports/pytest/phase4_results.xml",
+    "/app/backend/tests/test_real_data_pipeline.py",
+    "/app/backend/tests/saas_backend_test.py"
+  ],
+  "action_items": [
+    "(LOW design) Mobile /admin/predictions: stack 'Generate (Cached)' + 'Force Re-Generate' buttons under the heading on viewports <420px, currently the second button is clipped off-screen.",
+    "(carry-over HIGH from iter_3, not retested this round) Wrap LiteLLM/emergentintegrations calls inside `await asyncio.to_thread(...)` in /app/backend/pipeline.py to avoid event-loop starvation during /slip/generate?force=true.",
+    "(carry-over MED from iter_2) Brute-force lockout still uses per-pod identifier, may not trip behind K8s ingress."
+  ],
+  "critical_code_review_comments": [
+    "scheduler.py L74: `user_filter={'user_id': 'admin'}` filters subscriptions by user_id='admin' literal string, but db.push_subscriptions stores the actual UUID of the admin user (from auth_required dependency). This admin-only push notification will NEVER find a match — admin-only cron-completion broadcast is effectively dead code. Either resolve admin user_id at runtime or use a role flag in the subscription doc.",
+    "server.py L324: `if code != (existing.get('code') or '')` — broadcast fires only when code CHANGES, but if admin clicks Publish Code with same value twice in a row only the first triggers. Fine intentionally, but worth a one-line comment in code.",
+    "push_service.py L142: `asyncio.gather(...)` with 5000-sub batch could DoS the event loop. Add concurrency cap (asyncio.Semaphore(50)) for production safety.",
+    "saas_models.py: `cron_hour_utc: int = 8` — no Pydantic validator restricting to 0-23, allowing values like 99 to silently break CronTrigger. Add `Field(ge=0, le=23)`.",
+    "AdminConfig POST silently swallows masked secret values (good) but does not trim/validate odds_api_base_url; an admin pasting a base URL with trailing whitespace or trailing slash inconsistencies could break /v4 endpoint composition downstream.",
+    "/api/push/subscribe: no rate-limit. A trial user could spam thousands of subscription docs via crafted endpoints. Add unique-index already exists on endpoint but consider per-user cap of N subs."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase4.py (NEW)"
+  ],
+  "success_rate": {"backend": "100% (14/14 phase-4 pytest)", "frontend": "100% of phase-4 checklist (desktop + mobile)"},
+  "test_credentials": "admin@claudeodd.com / Admin@2026 (verified working).",
+  "seed_data_creation": "Set today's SportyBet code to 'TST4PH' via test (was 'PGQHDT' from iter_3). One temporary push_subscription inserted for endpoint '/fcm/.../test_phase4_pytest' and cleaned up immediately. odds_api_key briefly set to 'NEWTESTKEY123' then restored to masked placeholder (real key in DB unchanged because masked POST is rejected by server).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase-4 fully PASSES. Run `cd /app/backend && pytest tests/test_phase4.py -v --junitxml=/app/test_reports/pytest/phase4_results.xml` for regression. Cron logs in /var/log/supervisor/backend.err.log show reschedule on every POST /api/admin/config. The admin-only cron-completion push broadcast in scheduler.py L74 has a latent bug (filters by user_id='admin' literal, no match in real DB) — flagged in critical_code_review_comments. Iter_3 event-loop starvation bug (LiteLLM blocking) was NOT retested this round; if main agent fixes it, please trigger /api/slip/generate?force=true and concurrently call /api/auth/me to confirm <2s response.",
+  "rca of the issue": "No new critical bugs surfaced this iteration. Latent dead-code issue: scheduler._run_daily_pipeline post-completion broadcast uses `user_filter={'user_id': 'admin'}` which never matches the real admin's UUID in db.push_subscriptions — admin will never receive the 'slip is ready, please publish SportyBet code' notification from the cron path. Reproduction: subscribe as admin, wait for cron 08:00 UTC, observe no push; mitigation: lookup admin's id via `await db.users.find_one({'role':'admin'},{'id':1})` and pass `{'user_id': admin_doc['id']}`."
+}

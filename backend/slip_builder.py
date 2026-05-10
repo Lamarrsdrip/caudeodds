@@ -117,6 +117,11 @@ def build_slip(date_str: str, all_picks: List, sportybet_url: str = "https://www
     confidence_avg = confidence_avg / len(picks)
     expected_value = (fair_prob * combined_odds) - 1.0
 
+    # HARD SAFEGUARD: enforce the 2.0-5.0 / max-5-legs strategy cap at runtime.
+    # Real money is at stake — never ship a slip that violates the rules.
+    if combined_odds > TARGET_MAX_ODDS or len(legs) > MAX_LEGS:
+        return None
+
     if confidence_avg >= 78 and combined_odds <= 3.5 and expected_value > 0.08:
         risk = "LOW"
     elif confidence_avg >= 68 and expected_value > 0:

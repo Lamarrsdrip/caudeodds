@@ -116,6 +116,17 @@ class AdminConfig(BaseModel):
     # Branding / homepage
     brand_tagline: str = "AI-quant betting intelligence — disciplined daily edge."
     sportybet_handle: str = "https://www.sportybet.com/ng/"
+    # Sports-data API source (admin-overridable; falls back to .env if blank)
+    odds_api_provider: str = "the_odds_api"
+    odds_api_base_url: str = "https://api.the-odds-api.com/v4"
+    odds_api_key: str = ""  # if blank, server uses THE_ODDS_API_KEY from .env
+    # Daily cron
+    cron_enabled: bool = True
+    cron_hour_utc: int = 8  # 08:00 UTC = 09:00 Lagos
+    cron_minute_utc: int = 0
+    # Web Push
+    push_enabled: bool = True
+    push_subject_email: str = "admin@claudeodd.com"
     updated_at: str = Field(default_factory=utcnow_iso)
 
 

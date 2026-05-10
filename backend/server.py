@@ -93,12 +93,25 @@ async def on_startup():
     await picks_col.create_index("date")
     await picks_col.create_index([("date", -1), ("created_at", -1)])
     await rej_col.create_index("date")
+    await db.push_subscriptions.create_index("endpoint", unique=True)
+    await db.push_subscriptions.create_index("user_id")
     await seed_admin(db)
-    logger.info("ClaudeOdds startup complete")
+    # Sync admin config into runtime caches (odds API key/url) and start cron
+    cfg = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
+    from odds_api_service import set_runtime_config
+    set_runtime_config(
+        odds_api_key=cfg.get("odds_api_key", ""),
+        odds_api_base_url=cfg.get("odds_api_base_url", ""),
+    )
+    from scheduler import configure_scheduler
+    sched_status = await configure_scheduler(db)
+    logger.info("ClaudeOdds startup complete · scheduler=%s", sched_status)
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    from scheduler import shutdown as sched_shutdown
+    sched_shutdown()
     client.close()
 
 
@@ -115,6 +128,11 @@ async def root():
 @api.get("/public/config")
 async def public_config():
     cfg = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
+    from push_service import get_public_key
+    try:
+        vapid_public = await get_public_key(db)
+    except Exception:
+        vapid_public = ""
     return {
         "price_ngn": cfg.get("price_ngn", 5000.0),
         "trial_days": cfg.get("trial_days", 3),
@@ -126,6 +144,8 @@ async def public_config():
         "bank_account_name": cfg.get("bank_account_name", ""),
         "bank_instructions": cfg.get("bank_instructions", ""),
         "flw_public_key": cfg.get("flw_public_key", ""),
+        "vapid_public_key": vapid_public,
+        "push_enabled": cfg.get("push_enabled", True),
     }
 
 
@@ -294,12 +314,63 @@ async def admin_set_slip_code(payload: dict, _: dict = Depends(admin_required)):
     d = (payload.get("date") or today_str()).strip()
     if code and not (3 <= len(code) <= 12 and code.isalnum()):
         raise HTTPException(status_code=400, detail="Booking code must be 3-12 alphanumeric chars")
+    existing = await slip_codes_col.find_one({"_id": d}, {"_id": 0}) or {}
     await slip_codes_col.update_one(
         {"_id": d},
         {"$set": {"code": code, "updated_at": datetime.now(timezone.utc).isoformat()}},
         upsert=True,
     )
+    # Broadcast push notification when admin publishes a new (non-empty) code for today
+    if code and code != (existing.get("code") or "") and d == today_str():
+        cfg = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
+        if cfg.get("push_enabled", True):
+            try:
+                from push_service import broadcast
+                # Fire and forget — don't block the admin response
+                asyncio.create_task(broadcast(
+                    db,
+                    title="ClaudeOdds — Today's slip is live",
+                    body=f"Booking code: {code}. Tap to view picks and copy to SportyBet.",
+                    url="/dashboard",
+                ))
+            except Exception as e:
+                logger.warning("Push broadcast failed: %s", e)
     return {"date": d, "code": code}
+
+
+# ------------------ Push notifications (VAPID Web Push) ------------------
+
+@api.post("/push/subscribe")
+async def push_subscribe(payload: dict, request: Request, user: dict = Depends(get_current_user_dep)):
+    """Body: { subscription: <browser PushSubscription.toJSON()> }"""
+    sub = payload.get("subscription") or {}
+    ua = request.headers.get("user-agent", "")
+    from push_service import save_subscription
+    try:
+        await save_subscription(db, user_id=user["id"], subscription=sub, user_agent=ua)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@api.post("/push/unsubscribe")
+async def push_unsubscribe(payload: dict, _: dict = Depends(get_current_user_dep)):
+    endpoint = (payload.get("endpoint") or "").strip()
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="Missing endpoint")
+    from push_service import remove_subscription
+    deleted = await remove_subscription(db, endpoint)
+    return {"ok": True, "deleted": deleted}
+
+
+@api.post("/admin/push/test")
+async def admin_push_test(payload: dict, _: dict = Depends(admin_required)):
+    """Send a test push to verify the system end-to-end."""
+    title = (payload.get("title") or "ClaudeOdds — Test Notification")[:120]
+    body = (payload.get("body") or "If you see this, push notifications are working.")[:500]
+    from push_service import broadcast
+    res = await broadcast(db, title=title, body=body, url="/dashboard")
+    return res
 
 
 @api.post("/slip/generate")
@@ -589,6 +660,8 @@ async def admin_get_config(_: dict = Depends(admin_required)):
         cfg.smtp_password = "********"
     if cfg.telegram_bot_token:
         cfg.telegram_bot_token = "****" + cfg.telegram_bot_token[-4:]
+    if cfg.odds_api_key:
+        cfg.odds_api_key = "****" + cfg.odds_api_key[-4:]
     return cfg
 
 
@@ -598,11 +671,19 @@ async def admin_set_config(cfg: AdminConfig, _: dict = Depends(admin_required)):
     # Don't persist masked placeholders — re-load existing values for any field still masked
     existing = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
     payload = cfg.model_dump()
-    for secret_field in ["flw_secret_key", "flw_encryption_key", "flw_webhook_secret", "smtp_password", "telegram_bot_token"]:
+    for secret_field in ["flw_secret_key", "flw_encryption_key", "flw_webhook_secret", "smtp_password", "telegram_bot_token", "odds_api_key"]:
         v = payload.get(secret_field, "")
         if v and (v.startswith("****") or v == "********"):
             payload[secret_field] = existing.get(secret_field, "")
     await admin_cfg_col.update_one({"_id": "main"}, {"$set": payload}, upsert=True)
+    # Re-sync runtime config and reschedule cron
+    from odds_api_service import set_runtime_config
+    set_runtime_config(
+        odds_api_key=payload.get("odds_api_key", ""),
+        odds_api_base_url=payload.get("odds_api_base_url", ""),
+    )
+    from scheduler import configure_scheduler
+    await configure_scheduler(db)
     return cfg
 
 

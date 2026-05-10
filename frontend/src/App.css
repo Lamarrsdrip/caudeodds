@@ -1,6 +1,11 @@
 /* Component-level overrides for ClaudeOdd */
 .App { min-height: 100vh; background: var(--co-bg); }
 
+/* Mobile-only bottom padding so fixed BottomNav (~64px) doesn't cover content */
+@media (max-width: 767px) {
+    body { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+}
+
 .co-divider { height: 1px; background: var(--co-border); width: 100%; }
 .co-card {
     background: var(--co-surface);
