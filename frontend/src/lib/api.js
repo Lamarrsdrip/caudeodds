@@ -67,4 +67,5 @@ export const api = {
   adminPushTest: (title, body) => client.post(`/admin/push/test`, { title, body }).then(r => r.data),
   adminApifootballPreflight: () => client.get(`/admin/apifootball/preflight`).then(r => r.data),
   adminApibasketballPreflight: () => client.get(`/admin/apibasketball/preflight`).then(r => r.data),
+  adminSettleNow: () => client.post(`/admin/settle/now`).then(r => r.data),
 };

@@ -27,7 +27,12 @@ const SECTIONS = [
     ["cron_enabled", "Enabled", "bool"],
     ["cron_hour_utc", "Hour (UTC, 0-23)", "number"],
     ["cron_minute_utc", "Minute (0-59)", "number"],
-  ], hint: "Default: 08:00 UTC = 09:00 Lagos. The pipeline runs in the background; you'll get a push notification when it's done."},
+    ["min_slip_data_richness", "Min slip data richness (0.0-1.0)", "number"],
+  ], hint: "Default: 08:00 UTC = 09:00 Lagos. Min richness 0.4 = require partial intel before shipping a slip (refuses to publish price-only fakes). 0.7 = full intel only."},
+  { key: "autosettle", title: "Auto-Settlement (Post-match results)", fields: [
+    ["autosettle_enabled", "Enabled", "bool"],
+    ["autosettle_interval_hours", "Sweep interval (hours)", "number"],
+  ], hint: "Pulls final scores from API-Football and marks pending picks won/lost/void. Requires API-Football Pro. Default every 2 hours."},
   { key: "push", title: "Web Push Notifications", fields: [
     ["push_enabled", "Enabled", "bool"],
     ["push_subject_email", "VAPID Subject Email"],
@@ -65,6 +70,7 @@ export default function AdminConfig() {
   const [afResult, setAfResult] = useState(null);
   const [abBusy, setAbBusy] = useState(false);
   const [abResult, setAbResult] = useState(null);
+  const [settleBusy, setSettleBusy] = useState(false);
 
   useEffect(() => { api.adminConfig().then(setCfg); }, []);
 
@@ -105,6 +111,15 @@ export default function AdminConfig() {
     finally { setAbBusy(false); }
   };
 
+  const runSettleNow = async () => {
+    setSettleBusy(true);
+    try {
+      const r = await api.adminSettleNow();
+      toast.success(`Checked ${r.checked} · settled ${r.settled} · still pending ${r.still_pending} · skipped ${r.skipped}`);
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setSettleBusy(false); }
+  };
+
   if (!cfg) return null;
 
   return (
@@ -142,6 +157,12 @@ export default function AdminConfig() {
               </div>
             ))}
           </div>
+          {sec.key === "autosettle" && (
+            <button onClick={runSettleNow} disabled={settleBusy} data-testid="settle-now-btn"
+                    className="bg-[#00ff66] text-[#050505] hover:bg-[#f5f5f5] font-mono text-[11px] uppercase tracking-widest px-4 py-2 disabled:opacity-50">
+              {settleBusy ? "Settling…" : "Settle Pending Picks Now"}
+            </button>
+          )}
           {sec.key === "push" && (
             <button onClick={sendTestPush} disabled={pushBusy} data-testid="push-test-btn"
                     className="border border-[#262626] hover:bg-[#1a1a1a] font-mono text-[11px] uppercase tracking-widest px-4 py-2 disabled:opacity-50">

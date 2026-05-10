@@ -279,6 +279,97 @@ async def get_head_to_head(db, home_team_id: int, away_team_id: int, last_n: int
 
 # ---------- top-level: enrich a fixture ----------
 
+async def find_fixture_by_teams(db, league_name: str, home: str, away: str, date_str: str) -> Optional[Dict]:
+    """Find a specific fixture (by team names + date) in API-Football.
+    Returns the full /fixtures response item, or None.
+
+    Cache key includes date so we re-fetch when matches roll over.
+    """
+    league_id = LEAGUE_MAP.get(league_name)
+    if not league_id:
+        return None
+    home_id = await resolve_team_id(db, home, league_name)
+    if not home_id:
+        return None
+    cache_key = f"fixture_{home_id}_{league_id}_{date_str}"
+    cached = await _cache_get(db, cache_key, max_age_seconds=6 * 3600)
+    if cached is not None:
+        return cached
+    try:
+        body = await _get("/fixtures", params={
+            "team": home_id, "league": league_id,
+            "season": SEASON, "date": date_str,
+        })
+    except APIFootballError as e:
+        logger.warning("find_fixture_by_teams failed: %s", e)
+        return None
+    fixtures = body.get("response", []) or []
+    # Find the one matching the away team (fuzzy)
+    target_away = away.lower().strip()
+    best, best_score = None, 0
+    for fx in fixtures:
+        teams = fx.get("teams") or {}
+        away_name = ((teams.get("away") or {}).get("name") or "").lower()
+        score = max(fuzz.token_set_ratio(target_away, away_name), fuzz.partial_ratio(target_away, away_name))
+        if score > best_score:
+            best_score = score
+            best = fx
+    if best and best_score >= 70:
+        await _cache_put(db, cache_key, best)
+        return best
+    return None
+
+
+def settle_pick_result(market: str, fixture_result: Dict, home: str, away: str) -> Optional[str]:
+    """Given a finished fixture and the market we bet on, return 'won' / 'lost' / 'void'.
+
+    Returns None if the fixture isn't finished yet.
+    """
+    status = ((fixture_result.get("fixture") or {}).get("status") or {}).get("short", "")
+    # API-Football status: FT (finished), AET (after extra time), PEN (penalties),
+    # PST (postponed), CANC (cancelled), ABD (abandoned), NS (not started), LIVE
+    if status in ("PST", "CANC", "ABD", "AWD", "WO"):
+        return "void"
+    if status not in ("FT", "AET", "PEN"):
+        return None  # not finished
+    goals = fixture_result.get("goals") or {}
+    score = fixture_result.get("score") or {}
+    # Use full-time score (regular time only) so DC/DNB/1X2 settle at FT
+    ft = (score.get("fulltime") or {})
+    home_g = ft.get("home") if ft.get("home") is not None else goals.get("home")
+    away_g = ft.get("away") if ft.get("away") is not None else goals.get("away")
+    if home_g is None or away_g is None:
+        return None
+    home_g = int(home_g); away_g = int(away_g)
+    total = home_g + away_g
+    m = market.upper()
+    # 1X2
+    if m == "1X2_HOME": return "won" if home_g > away_g else "lost"
+    if m == "1X2_DRAW": return "won" if home_g == away_g else "lost"
+    if m == "1X2_AWAY": return "won" if away_g > home_g else "lost"
+    # Double Chance
+    if m == "DC_1X": return "won" if home_g >= away_g else "lost"
+    if m == "DC_X2": return "won" if away_g >= home_g else "lost"
+    if m == "DC_12": return "won" if home_g != away_g else "lost"
+    # Draw No Bet
+    if m == "DNB_HOME":
+        if home_g == away_g: return "void"
+        return "won" if home_g > away_g else "lost"
+    if m == "DNB_AWAY":
+        if home_g == away_g: return "void"
+        return "won" if away_g > home_g else "lost"
+    # Over/Under 2.5
+    if m == "OU_2_5_OVER": return "won" if total > 2.5 else "lost"
+    if m == "OU_2_5_UNDER": return "won" if total < 2.5 else "lost"
+    # BTTS
+    if m == "BTTS_YES": return "won" if (home_g > 0 and away_g > 0) else "lost"
+    if m == "BTTS_NO": return "won" if (home_g == 0 or away_g == 0) else "lost"
+    # Asian Handicap (-0.5/+0.5 = same as DNB / 1X2 split)
+    if m == "AH_HOME_-0.5": return "won" if home_g > away_g else "lost"
+    if m == "AH_AWAY_+0.5": return "won" if away_g >= home_g else "lost"
+    return None  # unknown market — leave pending
+
+
 async def preflight_check() -> Dict:
     """Test API-Football connectivity + verify current-season access.
 

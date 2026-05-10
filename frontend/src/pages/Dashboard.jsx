@@ -60,12 +60,25 @@ export default function Dashboard() {
   const { user } = useAuth();
   const [slip, setSlip] = useState(null);
   const [locked, setLocked] = useState(true);
+  const [awaitingData, setAwaitingData] = useState(null);
   const [history, setHistory] = useState([]);
   const [tab, setTab] = useState("today");
   const [vapid, setVapid] = useState("");
 
   useEffect(() => {
-    api.slipToday().then(d => { setSlip(d.slip); setLocked(d.locked); }).catch(() => {});
+    api.slipToday().then(d => {
+      setSlip(d.slip);
+      setLocked(d.locked);
+      if (d.awaiting_data) {
+        setAwaitingData({
+          message: d.message,
+          richness: d.data_richness,
+          min_required: d.min_required,
+        });
+      } else {
+        setAwaitingData(null);
+      }
+    }).catch(() => {});
     api.slipHistory().then(setHistory).catch(() => setHistory([]));
     api.publicConfig().then(c => setVapid(c.vapid_public_key || "")).catch(() => {});
   }, [user?.subscription_status]);
@@ -95,9 +108,22 @@ export default function Dashboard() {
           <div>
             <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight mb-2">TODAY'S COMBINED SLIP</h1>
             <p className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mb-5 sm:mb-6">
-              // {slip ? `${slip.leg_count} legs · published by AI ensemble` : "Awaiting today's run…"}
+              // {awaitingData ? "Awaiting real intel data" : (slip ? `${slip.leg_count} legs · published by AI ensemble` : "Awaiting today's run…")}
             </p>
-            <DailySlip slip={slip} locked={locked} onSubscribe={locked ? () => (window.location.href = "/subscription") : null} />
+            {awaitingData ? (
+              <div className="co-card p-6 sm:p-8 border-l-4 border-l-[#ffb800]" data-testid="awaiting-data-card">
+                <div className="font-heading font-bold text-lg mb-2">No slip today — awaiting real data</div>
+                <p className="text-sm text-[#a3a3a3] leading-relaxed mb-3">{awaitingData.message}</p>
+                <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">
+                  // data richness today: {Math.round((awaitingData.richness || 0) * 100)}% · minimum required: {Math.round((awaitingData.min_required || 0) * 100)}%
+                </div>
+                <p className="text-xs text-[#525252] mt-4 leading-relaxed">
+                  We refuse to ship slips that aren't backed by real injury / form / head-to-head data — that's how we keep your win-rate honest. Check back later today.
+                </p>
+              </div>
+            ) : (
+              <DailySlip slip={slip} locked={locked} onSubscribe={locked ? () => (window.location.href = "/subscription") : null} />
+            )}
           </div>
         )}
 

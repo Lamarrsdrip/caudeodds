@@ -299,6 +299,28 @@ async def slip_today(request: Request):
     if not slip:
         return {"date": date_str, "slip": None, "locked": locked, "fixtures_analyzed": 0}
 
+    # SLIP-QUALITY GATE: if average leg data_richness is below the admin
+    # threshold, suppress the slip entirely (the user doesn't want fakey
+    # "Market-Data Only" slips to ship). Show a clean "awaiting data" state.
+    avg_richness = (
+        sum((l.data_richness or 0) for l in slip.legs) / max(len(slip.legs), 1)
+    )
+    min_richness = float(cfg.get("min_slip_data_richness", 0.4))
+    if avg_richness < min_richness:
+        return {
+            "date": date_str, "slip": None, "locked": locked,
+            "fixtures_analyzed": 0,
+            "awaiting_data": True,
+            "data_richness": round(avg_richness, 2),
+            "min_required": min_richness,
+            "message": (
+                "Today's analysis is running on price-only data — no injury or "
+                "form intel was available. We refuse to ship slips that aren't "
+                "backed by real evidence. Come back later or check Admin → "
+                "Configuration → API-Football pre-flight."
+            ),
+        }
+
     # If locked, return a teaser (no leg details)
     if locked:
         teaser = slip.model_dump()
@@ -408,6 +430,13 @@ async def admin_apibasketball_preflight(_: dict = Depends(admin_required)):
     """Verify the API-Basketball key works for the CURRENT season."""
     from apibasketball_service import preflight_check
     return await preflight_check()
+
+
+@api.post("/admin/settle/now")
+async def admin_settle_now(_: dict = Depends(admin_required)):
+    """Run auto-settlement sweep on demand. Returns settlement stats."""
+    from settlement_service import settle_pending_picks
+    return await settle_pending_picks(db)
 
 
 @api.post("/slip/generate")

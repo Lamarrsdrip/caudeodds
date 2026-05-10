@@ -130,6 +130,13 @@ class AdminConfig(BaseModel):
     cron_enabled: bool = True
     cron_hour_utc: int = Field(default=8, ge=0, le=23)  # 08:00 UTC = 09:00 Lagos
     cron_minute_utc: int = Field(default=0, ge=0, le=59)
+    # Slip quality gate — minimum average data_richness required to publish a slip.
+    # 0.0 = ship anything (price-only allowed), 0.4 = require partial intel,
+    # 0.7 = require full intel only. Default 0.4 — hides obvious fakes from users.
+    min_slip_data_richness: float = Field(default=0.4, ge=0.0, le=1.0)
+    # Auto-settlement cron (settles past picks against API-Football final scores)
+    autosettle_enabled: bool = True
+    autosettle_interval_hours: int = Field(default=2, ge=1, le=24)
     # Web Push
     push_enabled: bool = True
     push_subject_email: str = "admin@claudeodd.com"

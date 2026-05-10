@@ -3,6 +3,9 @@
 Auto-runs the AI ensemble pipeline at a fixed UTC hour each day so the admin
 doesn't have to click "Force Re-Generate" manually. Hour is configurable via
 admin_config.cron_hour_utc (default 8 = 09:00 Lagos).
+
+Also runs an interval auto-settlement job that pulls final scores from
+API-Football to mark pending picks won/lost/void.
 """
 from __future__ import annotations
 
@@ -13,6 +16,7 @@ from datetime import datetime, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from models import Settings
 from pipeline import run_pipeline, today_str
@@ -89,8 +93,20 @@ async def _run_daily_pipeline(db):
         }})
 
 
+async def _run_autosettle(db):
+    """Run auto-settlement sweep."""
+    try:
+        from settlement_service import settle_pending_picks
+        stats = await settle_pending_picks(db)
+        logger.info("Auto-settle: checked=%d settled=%d still_pending=%d skipped=%d",
+                    stats["checked"], stats["settled"],
+                    stats["still_pending"], stats["skipped"])
+    except Exception as e:
+        logger.exception("Auto-settle failed: %s", e)
+
+
 async def configure_scheduler(db) -> dict:
-    """Read admin config and (re)schedule the daily job."""
+    """Read admin config and (re)schedule the daily + auto-settle jobs."""
     global _scheduler
     cfg = await db.admin_config.find_one({"_id": "main"}, {"_id": 0}) or {}
     # Defensive clamp — protect the scheduler from any legacy/corrupt values
@@ -103,15 +119,19 @@ async def configure_scheduler(db) -> dict:
     except (TypeError, ValueError):
         minute = 0
     enabled = bool(cfg.get("cron_enabled", True))
+    autosettle_enabled = bool(cfg.get("autosettle_enabled", True))
+    try:
+        autosettle_hours = max(1, min(24, int(cfg.get("autosettle_interval_hours", 2))))
+    except (TypeError, ValueError):
+        autosettle_hours = 2
 
     if _scheduler is None:
         _scheduler = AsyncIOScheduler(timezone="UTC")
         _scheduler.start()
 
-    # Remove existing job if any
+    # Daily pipeline job
     if _scheduler.get_job("daily_pipeline"):
         _scheduler.remove_job("daily_pipeline")
-
     if enabled:
         _scheduler.add_job(
             _run_daily_pipeline,
@@ -122,10 +142,31 @@ async def configure_scheduler(db) -> dict:
             misfire_grace_time=3600,
         )
         logger.info("Daily cron scheduled at %02d:%02d UTC", hour, minute)
-        return {"enabled": True, "hour_utc": hour, "minute_utc": minute,
-                "next_run": str(_scheduler.get_job("daily_pipeline").next_run_time)}
-    logger.info("Daily cron is DISABLED in admin config")
-    return {"enabled": False}
+
+    # Auto-settle job
+    if _scheduler.get_job("autosettle"):
+        _scheduler.remove_job("autosettle")
+    if autosettle_enabled:
+        _scheduler.add_job(
+            _run_autosettle,
+            IntervalTrigger(hours=autosettle_hours),
+            id="autosettle",
+            args=[db],
+            replace_existing=True,
+            misfire_grace_time=3600,
+            next_run_time=datetime.now(timezone.utc),  # run shortly after startup
+        )
+        logger.info("Auto-settle scheduled every %dh", autosettle_hours)
+
+    daily_next = _scheduler.get_job("daily_pipeline").next_run_time if _scheduler.get_job("daily_pipeline") else None
+    settle_next = _scheduler.get_job("autosettle").next_run_time if _scheduler.get_job("autosettle") else None
+    return {
+        "daily_enabled": enabled, "daily_next": str(daily_next),
+        "daily_hour_utc": hour, "daily_minute_utc": minute,
+        "autosettle_enabled": autosettle_enabled,
+        "autosettle_interval_hours": autosettle_hours,
+        "autosettle_next": str(settle_next),
+    }
 
 
 def shutdown():
