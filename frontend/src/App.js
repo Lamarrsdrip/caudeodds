@@ -1,107 +1,61 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React from "react";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import "@/App.css";
 import { Toaster } from "@/components/ui/sonner";
-import { toast } from "sonner";
 
-import Header from "@/components/Header";
-import SharpMarquee from "@/components/SharpMarquee";
-import PicksBoard from "@/components/PicksBoard";
-import HistoryTable from "@/components/HistoryTable";
-import AnalyticsView from "@/components/AnalyticsView";
-import RejectedLog from "@/components/RejectedLog";
-import SettingsView from "@/components/SettingsView";
-import { api } from "@/lib/api";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import Landing from "@/pages/Landing";
+import Login from "@/pages/Login";
+import Register from "@/pages/Register";
+import Pricing from "@/pages/Pricing";
+import Dashboard from "@/pages/Dashboard";
+import Subscription from "@/pages/Subscription";
+import PaymentCallback from "@/pages/PaymentCallback";
+import AdminLayout, { AdminOverview } from "@/pages/admin/AdminLayout";
+import AdminUsers from "@/pages/admin/AdminUsers";
+import AdminPayments from "@/pages/admin/AdminPayments";
+import AdminConfig from "@/pages/admin/AdminConfig";
+import AdminPredictions from "@/pages/admin/AdminPredictions";
+
+function ProtectedRoute({ children, adminOnly = false }) {
+  const { user, loading } = useAuth();
+  const loc = useLocation();
+  if (loading) return (
+    <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+      <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252] co-pulse">// Loading terminal…</div>
+    </div>
+  );
+  if (!user) return <Navigate to={`/login?next=${loc.pathname}`} replace />;
+  if (adminOnly && user.role !== "admin") return <Navigate to="/dashboard" replace />;
+  return children;
+}
 
 export default function App() {
-  const [tab, setTab] = useState("picks");
-  const [picks, setPicks] = useState([]);
-  const [history, setHistory] = useState([]);
-  const [rejected, setRejected] = useState([]);
-  const [sharp, setSharp] = useState([]);
-  const [roi, setRoi] = useState(null);
-  const [parlay, setParlay] = useState(null);
-  const [settings, setSettings] = useState(null);
-  const [generating, setGenerating] = useState(false);
-  const [lastRun, setLastRun] = useState(null);
-
-  const refreshAll = useCallback(async () => {
-    try {
-      const [t, h, r, s, ro, p, cfg] = await Promise.all([
-        api.today(), api.history({ limit: 200 }), api.rejected({ limit: 100 }),
-        api.sharp(), api.roi(), api.parlay(), api.getConfig(),
-      ]);
-      setPicks(t); setHistory(h); setRejected(r); setSharp(s);
-      setRoi(ro); setParlay(p); setSettings(cfg);
-    } catch (e) {
-      console.error("refresh failed", e);
-    }
-  }, []);
-
-  useEffect(() => { refreshAll(); }, [refreshAll]);
-
-  const handleGenerate = async () => {
-    setGenerating(true);
-    toast.loading("Running Claude + GPT ensemble…", { id: "gen" });
-    try {
-      const res = await api.generate(false);
-      setLastRun({ fixtures_analyzed: res.fixtures_analyzed, rejected_count: res.rejected_count });
-      if (res.cached) {
-        toast.success(`Cached: ${res.picks.length} picks for ${res.date}`, { id: "gen" });
-      } else {
-        toast.success(`Generated ${res.picks.length} pick(s) from ${res.fixtures_analyzed} fixtures`, { id: "gen" });
-      }
-      await refreshAll();
-    } catch (e) {
-      toast.error(`Generation failed: ${e.response?.data?.detail || e.message}`, { id: "gen" });
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const handleSettle = async (id, result) => {
-    try {
-      await api.settle(id, result);
-      toast.success(`Marked ${result}`);
-      await refreshAll();
-    } catch (e) {
-      toast.error("Settle failed");
-    }
-  };
-
-  const handleSaveSettings = async (s) => {
-    const saved = await api.saveConfig(s);
-    setSettings(saved);
-  };
-
   return (
-    <div className="App min-h-screen bg-[#050505] text-[#f5f5f5]">
-      <Header
-        roi={roi}
-        parlay={parlay}
-        onGenerate={handleGenerate}
-        generating={generating}
-        onTabChange={setTab}
-        tab={tab}
-      />
-      <SharpMarquee signals={sharp} />
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Landing/>}/>
+          <Route path="/pricing" element={<Pricing/>}/>
+          <Route path="/login" element={<Login/>}/>
+          <Route path="/register" element={<Register/>}/>
+          <Route path="/payment/callback" element={<PaymentCallback/>}/>
 
-      <main className="px-6 py-8 max-w-[1500px] mx-auto">
-        {tab === "picks" && (
-          <PicksBoard picks={picks} parlay={parlay} onSettle={handleSettle} generating={generating} lastRun={lastRun} />
-        )}
-        {tab === "history" && <HistoryTable picks={history} onSettle={handleSettle} />}
-        {tab === "analytics" && <AnalyticsView roi={roi} sharp={sharp} />}
-        {tab === "rejected" && <RejectedLog rejected={rejected} />}
-        {tab === "settings" && <SettingsView settings={settings} onSave={handleSaveSettings} />}
-      </main>
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard/></ProtectedRoute>}/>
+          <Route path="/subscription" element={<ProtectedRoute><Subscription/></ProtectedRoute>}/>
 
-      <footer className="border-t border-[#262626] mt-16 px-6 py-6 text-center">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">
-          CLAUDEODD · Disciplined ensemble · Bet responsibly · No system guarantees profit
-        </div>
-      </footer>
+          <Route path="/admin" element={<ProtectedRoute adminOnly><AdminLayout/></ProtectedRoute>}>
+            <Route index element={<AdminOverview/>}/>
+            <Route path="users" element={<AdminUsers/>}/>
+            <Route path="payments" element={<AdminPayments/>}/>
+            <Route path="predictions" element={<AdminPredictions/>}/>
+            <Route path="config" element={<AdminConfig/>}/>
+          </Route>
 
-      <Toaster theme="dark" position="bottom-right" />
-    </div>
+          <Route path="*" element={<Navigate to="/" replace/>}/>
+        </Routes>
+        <Toaster theme="dark" position="bottom-right"/>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }

@@ -1,0 +1,51 @@
+{
+  "summary": "Phase-2 SaaS testing of CLAUDEODD. Backend: 29/30 pytest cases PASSED across auth, slip, payments, admin, public config. 1 FAILED — brute-force lockout (real production bug, see RCA). Frontend: landing renders with 'ONE SLIP. TWO AIs. DAILY EDGE.' tagline + locked teaser, login as admin redirects to /admin showing KPI grid (10 users, 6 trial, 2 active, ₦5,000 revenue) + Run Daily Ensemble + Quick Actions. Admin tabs (Overview, Users, Payments, Predictions, Configuration) all load. /admin/predictions shows picks with W/L/V settle buttons + Generate/Force Re-Generate buttons. ProtectedRoute correctly redirects unauthenticated /dashboard → /login?next=/dashboard. Locked teaser at /api/slip/today returns '🔒 Locked' legs without auth and full slip with sportybet_code for trial/admin. Bank transfer flow end-to-end verified: user submits proof → admin approves → user.subscription_status flips to 'active'. Flutterwave init correctly returns 400 'not configured'. Did NOT call /slip/generate?force=true (real LLM cost — used cached picks for 2026-05-10/11 per agent context).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/auth/login", "issue": "Brute-force lockout NOT enforced in production. After 6+ wrong-password attempts a single email continues to receive 401 (never 429). Root cause: K8s ingress load-balances requests across multiple backend pod replicas with different client IPs (10.232.132.136, 10.232.135.130 observed). Lockout identifier is 'ip:email' so per-pod count never reaches 5. login_attempts collection clearly shows the split: pod A had count=2, pod B had count=0 with locked_until set — but next request hit pod A again and bypassed the lock.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "CORS", "issue": "allow_origins=['*'] with allow_credentials=False is fine for Bearer-token flow, but if cookie auth is later enabled (decode_token already reads cookies in get_current_user_dep), credentials must be re-enabled with explicit origins."},
+      {"endpoint": "/api/slip/today", "issue": "Token decoding uses bare try/except Exception that silently swallows ExpiredSignature/Invalid token — user with stale JWT sees 'locked' instead of 401, which is OK UX-wise but masks real auth failures."},
+      {"endpoint": "/api/payments/flutterwave/verify", "issue": "tx_ref passed as a query parameter (not body) — works but unusual; document or accept body."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Register form", "issues": ["Full Name input lacks a stable data-testid (only the visible label 'FULL NAME' is shown). Add data-testid='register-name' and similar for email/password/dob/checkboxes/submit so automated tests don't have to guess. Same for /login and admin forms."]},
+      {"screen": "Admin Predictions table", "issues": ["Page shows internal Pick fields (Conf%, EV%) which is fine for admin, but Bankroll/Kelly columns (per task brief) are NOT shown — confirm intentional. Settle buttons (W/L/V) are tightly packed; consider tooltips."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/saas_backend_test.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/saas_results.xml"
+  ],
+  "action_items": [
+    "(HIGH) Fix brute-force lockout to work behind K8s ingress. Options: (a) parse X-Forwarded-For / X-Real-IP from request.headers and use the leftmost public IP as identifier; (b) drop IP from the identifier and use only email (simpler, slightly more aggressive); (c) move attempt counter to a Redis/atomic Mongo $inc on a shared key. The current 'ip:email' fragments across pod IPs and never trips the threshold.",
+    "(MED) Add data-testid attributes to Register, Login and admin form fields/buttons (register-name, register-email, register-password, register-dob, register-age18, register-terms, register-submit, login-email, login-password, login-submit, admin-config-save, admin-payments-approve-{id}, etc.) — the testing agent had to fall back to type-based selectors and Full Name input wasn't reliably fillable.",
+    "(LOW) Wrap token decode in /api/slip/today with explicit jwt.ExpiredSignatureError handling so logs distinguish locked-because-expired vs locked-because-anonymous.",
+    "(LOW) /api/payments/flutterwave/verify — accept tx_ref via JSON body instead of query."
+  ],
+  "critical_code_review_comments": [
+    "auth.py is_locked / record_failure: identifier = f'{ip}:{email}' uses request.client.host which is the immediate TCP peer (the K8s service-mesh proxy), NOT the real user. Behind any LB/ingress this IP rotates per request, defeating the lockout. Must read X-Forwarded-For (and trust it carefully).",
+    "server.py L237-248 (slip_today): bare 'except Exception: pass' on token decode — at least log at DEBUG; today even invalid signatures silently fall through to 'locked teaser' which is correct behavior but makes auth bugs invisible.",
+    "server.py L278: settings_doc fetched but if missing falls back to default Settings() — fine. However admin_cfg_col uses the same _id='main' singleton pattern as ensemble settings; consider a single 'config_kind' field instead of overloading _id.",
+    "subscriptions.refresh_status: when sub_end exists but is in the past AND trial_end also in the past, status becomes 'expired' via the trial branch. If only sub_end exists and is past with no trial_end, status stays 'none' — should also be 'expired'.",
+    "saas_models.AdminConfig: stores flw_secret_key, smtp_password etc in plaintext in MongoDB. /api/admin/config returns them to admin UI in clear. Acceptable for single-admin SaaS but should at least encrypt-at-rest or mask on GET (return '****' with a 'configured: true' flag).",
+    "server.py L388-401 bank_transfer: 4MB cap is enforced AFTER the body is fully received by FastAPI; consider Content-Length pre-check and / or move to multipart upload to avoid memory pressure on large rejected bodies.",
+    "server.py imports `payments` at top but also `from auth import decode_token` inside slip_today (L242) — small style nit, hoist to top."
+  ],
+  "updated_files": [
+    "/app/backend/tests/saas_backend_test.py"
+  ],
+  "success_rate": {"backend": "97% (29/30 pytest)", "frontend": "85% (admin + landing + protected route verified; trial dashboard slip + register submission not visually verified due to missing data-testid on name input)"},
+  "test_credentials": "admin@claudeodd.com / Admin@2026 (verified working). Trial users created via fixture using TEST_*@example.com.",
+  "seed_data_creation": "Created several TEST_*@example.com trial users (~7) via /api/auth/register during testing. One was upgraded to 'active' via /api/admin/users/{id}/grant?days=30, one suspended via /api/admin/users/{id}/suspend, one had a bank-transfer payment approved (revenue +₦5,000), one rejected. AdminConfig price_ngn was briefly mutated to 7,500 then restored to original (5,000). 1 successful payment now in DB.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "1) Run pytest at /app/backend/tests/saas_backend_test.py — `cd /app/backend && pytest tests/saas_backend_test.py -v`. 2) The original /app/backend/tests/backend_test.py still works for the legacy ensemble endpoints. 3) Brute-force lockout test WILL fail until the K8s LB issue is fixed — see action item. To verify locally, you can hit the backend on 0.0.0.0:8001 directly (single pod) where lockout should work. 4) DO NOT call /api/slip/generate?force=true unless absolutely needed — costs real LLM credits and 60-180s. Cached picks exist for 2026-05-10 (Chelsea void, Real Madrid won) and 2026-05-11 (Bayern pending). 5) Admin token refreshes for 7 days; login in tests is cheap.",
+  "rca of the issue": "Brute-force lockout RCA — Reproduction: register a fresh user, then send 7 wrong-password POSTs to /api/auth/login with the same email. Expected: attempt 6 returns 429. Observed: all 7 return 401. Investigation: queried db.login_attempts directly and saw TWO documents per email — one keyed 10.232.132.136:email (count=2) and another keyed 10.232.135.130:email (count=0, locked_until set). This proves the K8s ingress is round-robining requests across at least two backend pod IPs, so the per-(ip,email) counter never alone reaches 5. Mitigation: change `identifier` in server.auth_login from `f'{ip}:{email}'` to either (a) `email` only (simpler, slightly more aggressive), or (b) parse X-Forwarded-For: `xff = request.headers.get('x-forwarded-for', ''); real_ip = xff.split(',')[0].strip() or request.client.host`. Option (b) preserves multi-tenant safety but only works if the ingress sets XFF (Emergent's does — confirm)."
+}
