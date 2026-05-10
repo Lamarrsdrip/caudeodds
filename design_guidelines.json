@@ -1,0 +1,90 @@
+{
+  "theme": "dark",
+  "archetype": "Archetype 4 (Swiss & High-Contrast)",
+  "concept": "Quant-Finance Terminal / Bloomberg Aesthetic",
+  "typography": {
+    "heading_font": "Chivo",
+    "body_font": "IBM Plex Sans",
+    "mono_font": "JetBrains Mono",
+    "font_strategy": "JetBrains Mono MUST be used for all numerical data, odds, percentages, tickers, and Kelly stakes. Chivo for section headers (often uppercase, tracking-widest). IBM Plex Sans for general body text and interface labels.",
+    "scales": {
+      "h1": "text-3xl sm:text-4xl tracking-tight font-black",
+      "h2": "text-xl sm:text-2xl tracking-tight font-bold",
+      "h3": "text-lg tracking-tight font-semibold",
+      "data_large": "text-4xl font-mono tracking-tighter",
+      "body": "text-sm",
+      "mono_small": "text-xs font-mono tracking-wide uppercase"
+    }
+  },
+  "colors": {
+    "background": "#050505",
+    "surface": "#121212",
+    "surface_hover": "#1A1A1A",
+    "surface_active": "#262626",
+    "border": "#262626",
+    "border_focus": "#525252",
+    "primary": "#F5F5F5",
+    "primary_foreground": "#050505",
+    "text_primary": "#F5F5F5",
+    "text_secondary": "#A3A3A3",
+    "text_tertiary": "#525252",
+    "signals": {
+      "positive": "#00FF66",
+      "negative": "#FF3333",
+      "warning": "#FF9900"
+    },
+    "ai_agents": {
+      "claude": "#FFFFFF",
+      "gpt": "#737373"
+    },
+    "rules": "ABSOLUTELY NO PURPLE OR TEAL. No gradients unless functional (like a heat map). Colors are purely for data signaling."
+  },
+  "spacing_and_layout": {
+    "grid_system": "Control Room Grid. Base grid-cols-1 md:grid-cols-12 with tight gaps (gap-4 or gap-px with border-collapse approach).",
+    "padding": "Compact density. p-4 or p-6 for panels. Minimal white space, maximize data density.",
+    "borders": "Expose the grid. Use 1px solid borders (border-[#262626]) extensively to separate data points. Do not rely on whitespace alone.",
+    "radius": "rounded-none globally. Extreme sharp edges for terminal feel."
+  },
+  "components_strategy": {
+    "cards": "Flat background (surface), 1px solid border. NO SHADOWS. Hover effect: change border color to border-focus and background to surface_hover.",
+    "buttons": "Primary: Solid #F5F5F5 bg, black text, rounded-none. Secondary: border-border border solid, transparent bg. Hover: invert or highlight.",
+    "tabs": "Minimalist. Underline indicators or solid stark blocks. Avoid pill shapes. Text should be uppercase mono.",
+    "tables": "Dense. text-sm or text-xs mono. py-2 px-3 cells. Explicit bottom borders. Hover states on rows.",
+    "badges": "Square borders, uppercase mono text. Used for Risk levels, EV score flags, etc.",
+    "charts": "Recharts. Monochrome axes and grids. Use signal green/red ONLY for the actual data lines/bars to draw extreme attention."
+  },
+  "feature_execution": {
+    "daily_picks_board": "Grid of dense cards. Key data (Odds, EV, Confidence) must be huge JetBrains Mono numbers. Clear visual split between Match Info and AI Analysis.",
+    "consensus_meter": "Segmented horizontal bar chart. Left side (Claude) white, Right side (GPT) dark grey. Center line indicates alignment.",
+    "roi_tracking": "Sharp line chart (Recharts). Area under the line should be a faint 5% opacity signal green.",
+    "live_analytics": "Implement a continuously scrolling marquee (react-fast-marquee) for live line movements or sharp money alerts at the very top or bottom of the dashboard.",
+    "filter_rejection_log": "Terminal-style list. Dimmed text (text-tertiary) for rejected matches, with a mono red tag for 'TRAP' or 'LOW_EV'."
+  },
+  "motion_and_interaction": {
+    "philosophy": "Instantaneous. Tactical. No bouncy animations.",
+    "transitions": "transition-colors duration-100 ease-in.",
+    "hover_states": "Background lightens slightly (surface -> surface_hover). Data rows might gain a 1px left-border of signal green on hover.",
+    "focus_states": "2px solid #F5F5F5 ring. High contrast accessibility."
+  },
+  "icons_and_media": {
+    "icon_library": "@phosphor-icons/react",
+    "icon_style": "weight='bold' or 'fill'. Keep them small and functional.",
+    "images": [
+      {
+        "category": "background",
+        "url": "https://static.prod-images.emergentagent.com/jobs/8903352f-2731-4ab7-a2b6-2a4c6c51f50a/images/2e3f6c0783b89c1d2159c52c2bc3d2bee60ed62c53f3cfb2a606d15b3dd72213.png",
+        "description": "Abstract dark terminal texture, deep obsidian black background with faint 1px grid lines. Use sparingly for auth backgrounds or empty states."
+      }
+    ]
+  },
+  "testing": {
+    "data_testid_rules": "All interactive elements, forms, tabs, and key data nodes MUST include data-testid. Format: kebab-case, role-based (e.g., 'picks-tab-button', 'consensus-meter', 'roi-chart')."
+  },
+  "instructions_to_main_agent": [
+    "Install and use 'lucide-react' or '@phosphor-icons/react'.",
+    "Use Shadcn UI but aggressively override styles to remove all border-radius (rounded-none).",
+    "Ensure all backgrounds are #050505 or #121212. DO NOT use Shadcn's default slate or zinc which have blue/purple undertones. Override global CSS variables strictly to grayscale/neutral.",
+    "Assemble the dashboard prioritizing data visibility. It should look like a professional trading interface, not a consumer web app.",
+    "Use mock data that reflects sports betting reality (e.g., fractional/decimal odds, team names, sharp money percentages)."
+  ]
+}
