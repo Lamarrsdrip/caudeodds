@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from "react";
 import AppHeader from "@/components/AppHeader";
 import EmrizFooter from "@/components/EmrizFooter";
-import { api } from "@/lib/api";
+import { api, formatApiError } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
+import { CreditCard, Loader2, Upload, Building2, CheckCircle2 } from "lucide-react";
 
 function FlutterwavePane({ onPaid }) {
   const [busy, setBusy] = useState(false);

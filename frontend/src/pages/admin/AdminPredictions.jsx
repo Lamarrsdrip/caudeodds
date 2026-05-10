@@ -72,13 +72,13 @@ export default function AdminPredictions() {
 
   return (
     <div className="space-y-6" data-testid="admin-predictions-view">
-      <div className="flex items-center justify-between">
-        <h1 className="font-heading font-black text-3xl tracking-tight">PREDICTIONS</h1>
-        <div className="flex items-center gap-2">
-          <button onClick={() => generate(false)} disabled={busy} data-testid="generate-cached-btn" className="border border-[#262626] hover:bg-[#1a1a1a] font-mono text-xs uppercase tracking-widest px-4 py-2 disabled:opacity-50">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight">PREDICTIONS</h1>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => generate(false)} disabled={busy} data-testid="generate-cached-btn" className="border border-[#262626] hover:bg-[#1a1a1a] font-mono text-xs uppercase tracking-widest px-4 py-2 disabled:opacity-50 flex-1 sm:flex-none">
             {busy ? "Running…" : "Generate (cached)"}
           </button>
-          <button onClick={() => generate(true)} disabled={busy} data-testid="force-regen-btn" className="bg-[#00ff66] text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 hover:bg-[#f5f5f5] disabled:opacity-50">
+          <button onClick={() => generate(true)} disabled={busy} data-testid="force-regen-btn" className="bg-[#00ff66] text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 hover:bg-[#f5f5f5] disabled:opacity-50 flex-1 sm:flex-none">
             {busy ? "Running…" : "Force Re-Generate"}
           </button>
         </div>

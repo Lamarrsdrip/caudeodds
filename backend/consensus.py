@@ -163,6 +163,68 @@ def evaluate(
             reason=f"Odds for {quant.market} unresolved or too low",
         )
 
+    # ============================================================
+    # REALISM CALIBRATION (real-money safeguard)
+    # ------------------------------------------------------------
+    # Book consensus across 8-15 sharp+public books IS the most accurate
+    # prior for any market. The LLM provides DIRECTION (which side has the
+    # micro-edge), not a re-pricing of the entire match. We therefore cap
+    # how far the AI's fair_prob may diverge from the bookmaker median.
+    #
+    # Empirical bound from sports-betting research: even a strong sharp
+    # divergence with low volatility rarely justifies more than a 5-7%
+    # absolute probability shift. We allow up to MAX_PROB_SHIFT then clamp.
+    # ============================================================
+    book_implied = round(1.0 / odds, 4)  # use real book-derived implied prob, not LLM's claim
+
+    # Base shift budget: 4% absolute prob shift
+    MAX_PROB_SHIFT = 0.04
+    # Up to +3% extra if the market signal is genuinely strong:
+    #   - sharp/public divergence > 15ppt in our direction
+    #   - low volatility (<0.25)
+    #   - high liquidity (>0.6)
+    sharp_pct = fx.sharp_money_pct or {}
+    side = quant_side
+    sharp_for_side = 50
+    if side in ("HOME", "OVER", "BTTS_YES"):
+        sharp_for_side = sharp_pct.get("home", sharp_pct.get("over", 50))
+    elif side in ("AWAY", "UNDER", "BTTS_NO"):
+        sharp_for_side = sharp_pct.get("away", sharp_pct.get("under", 50))
+    if sharp_for_side > 60 and (fx.volatility or 0.5) < 0.30 and (fx.liquidity_score or 0) > 0.55:
+        MAX_PROB_SHIFT += 0.03  # max 7% shift in strong-signal cases
+
+    raw_fair_prob = float(quant.fair_prob)
+    direction = 1 if raw_fair_prob > book_implied else -1
+    diverge = abs(raw_fair_prob - book_implied)
+    if diverge > MAX_PROB_SHIFT:
+        calibrated_fair_prob = round(book_implied + direction * MAX_PROB_SHIFT, 4)
+    else:
+        calibrated_fair_prob = round(raw_fair_prob, 4)
+
+    # Recompute EV and edge_pct from calibrated probability
+    calibrated_ev = round(calibrated_fair_prob * odds - 1.0, 4)
+    calibrated_edge_pct = round((calibrated_fair_prob - book_implied) / book_implied * 100.0, 2)
+
+    # If after calibration the bet has no edge, reject it
+    if calibrated_ev < settings.min_ev:
+        return None, RejectionLog(
+            date=date_str, match=match, sport=fx.sport,
+            reason_code="LOW_EV_CALIBRATED",
+            reason=(f"After realism calibration, EV={calibrated_ev:.3f} < {settings.min_ev:.3f}. "
+                    f"Original AI fair_prob {raw_fair_prob:.3f} clamped to {calibrated_fair_prob:.3f} "
+                    f"(book implies {book_implied:.3f}; max shift {MAX_PROB_SHIFT:.2f})"),
+        )
+
+    # Cap displayed confidence based on agreement + calibrated edge
+    # (a 4% edge is exceptional in sports markets — anything claiming
+    # >10% edge is hallucination and should not raise displayed confidence)
+    confidence_cap = 92.0  # never claim >92% confidence on a single leg
+    if calibrated_edge_pct < 2.0:
+        confidence_cap = min(confidence_cap, 80.0)
+    if calibrated_edge_pct < 1.0:
+        confidence_cap = min(confidence_cap, 75.0)
+    calibrated_confidence = min(round(ensemble_conf, 1), confidence_cap)
+
     conf_gap = abs(quant.confidence - reasoning.tactical_confidence)
     agreement = max(0.0, 100.0 - conf_gap)
     if agreement < settings.min_agreement:
@@ -172,15 +234,22 @@ def evaluate(
             reason=f"Agreement {agreement:.0f}% < {settings.min_agreement:.0f}%",
         )
 
+    # Update quant view with calibrated values so the API + UI reflect reality
+    quant.fair_prob = calibrated_fair_prob
+    quant.book_implied_prob = book_implied
+    quant.expected_value = calibrated_ev
+    quant.edge_pct = calibrated_edge_pct
+    quant.confidence = calibrated_confidence
+
     pct, units = stake_recommendation(
-        fair_prob=quant.fair_prob,
+        fair_prob=calibrated_fair_prob,
         odds=odds,
-        confidence=ensemble_conf,
+        confidence=calibrated_confidence,
         bankroll=settings.bankroll,
         kelly_frac=settings.kelly_fraction,
     )
 
-    risk = risk_level(ensemble_conf, quant.edge_pct, fx.volatility)
+    risk = risk_level(calibrated_confidence, calibrated_edge_pct, fx.volatility)
     label = quant.selection_label or MARKET_LABELS.get(quant.market.upper(), quant.market)
 
     pick = Pick(
@@ -192,10 +261,10 @@ def evaluate(
         market=quant.market,
         selection_label=label,
         odds=odds,
-        confidence=round(ensemble_conf, 1),
+        confidence=calibrated_confidence,
         agreement=round(agreement, 1),
-        expected_value=round(quant.expected_value, 4),
-        edge_pct=round(quant.edge_pct, 2),
+        expected_value=calibrated_ev,
+        edge_pct=calibrated_edge_pct,
         risk_level=risk,
         kelly_stake_pct=pct,
         stake_units=units,
