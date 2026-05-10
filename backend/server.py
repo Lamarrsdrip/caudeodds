@@ -194,29 +194,32 @@ async def analytics_roi():
     docs = await picks_col.find({}, {"_id": 0}).sort("created_at", 1).to_list(2000)
     bankroll = settings.bankroll
     curve = []
-    won = lost = pending = 0
+    won = lost = pending = voided = 0
     total_staked = 0.0
     profit = 0.0
     for d in docs:
         stake = float(d.get("stake_units", 0))
-        if d.get("status") == "won":
+        status = d.get("status", "pending")
+        if status == "won":
             won += 1
             total_staked += stake
             pnl = stake * (float(d["odds"]) - 1)
             profit += pnl
             bankroll += pnl
-        elif d.get("status") == "lost":
+        elif status == "lost":
             lost += 1
             total_staked += stake
             profit -= stake
             bankroll -= stake
+        elif status == "void":
+            voided += 1
         else:
             pending += 1
         curve.append({
             "t": d.get("settled_at") or d.get("created_at"),
             "bankroll": round(bankroll, 2),
             "match": d.get("match"),
-            "status": d.get("status"),
+            "status": status,
         })
     settled = won + lost
     win_rate = (won / settled * 100) if settled else 0.0
@@ -226,7 +229,7 @@ async def analytics_roi():
         "current_bankroll": round(bankroll, 2),
         "profit": round(profit, 2),
         "total_staked": round(total_staked, 2),
-        "won": won, "lost": lost, "pending": pending, "settled": settled,
+        "won": won, "lost": lost, "pending": pending, "void": voided, "settled": settled,
         "win_rate": round(win_rate, 1),
         "roi_pct": round(roi_pct, 2),
         "curve": curve[-200:],
@@ -274,7 +277,7 @@ async def analytics_sharp():
 app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],

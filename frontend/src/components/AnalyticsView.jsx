@@ -29,8 +29,8 @@ export default function AnalyticsView({ roi, sharp }) {
           <h3 className="font-heading font-bold text-lg">Bankroll Curve</h3>
           <span className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">{curve.length} settled events</span>
         </div>
-        <div style={{ width: "100%", height: 280 }}>
-          <ResponsiveContainer>
+        <div style={{ width: "100%", height: 280, minHeight: 240 }}>
+          <ResponsiveContainer width="100%" height="100%" minHeight={240}>
             <AreaChart data={curve} margin={{ top: 10, right: 12, bottom: 0, left: -12 }}>
               <defs>
                 <linearGradient id="brkArea" x1="0" y1="0" x2="0" y2="1">
