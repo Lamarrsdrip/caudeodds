@@ -112,6 +112,7 @@ async def on_startup():
     cfg = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
     from odds_api_service import set_runtime_config as set_odds_runtime
     from apifootball_service import set_runtime_config as set_af_runtime
+    from apibasketball_service import set_runtime_config as set_ab_runtime
     set_odds_runtime(
         odds_api_key=cfg.get("odds_api_key", ""),
         odds_api_base_url=cfg.get("odds_api_base_url", ""),
@@ -119,6 +120,10 @@ async def on_startup():
     set_af_runtime(
         apifootball_key=cfg.get("apifootball_key", ""),
         apifootball_base_url=cfg.get("apifootball_base_url", ""),
+    )
+    set_ab_runtime(
+        apibasketball_key=cfg.get("apibasketball_key", ""),
+        apibasketball_base_url=cfg.get("apibasketball_base_url", ""),
     )
     from scheduler import configure_scheduler
     sched_status = await configure_scheduler(db)
@@ -395,6 +400,13 @@ async def admin_apifootball_preflight(_: dict = Depends(admin_required)):
     """Verify the API-Football key works for the CURRENT season before relying
     on it for live predictions. Returns a structured status the UI can render."""
     from apifootball_service import preflight_check
+    return await preflight_check()
+
+
+@api.get("/admin/apibasketball/preflight")
+async def admin_apibasketball_preflight(_: dict = Depends(admin_required)):
+    """Verify the API-Basketball key works for the CURRENT season."""
+    from apibasketball_service import preflight_check
     return await preflight_check()
 
 
@@ -704,6 +716,8 @@ async def admin_get_config(_: dict = Depends(admin_required)):
         cfg.odds_api_key = "****" + cfg.odds_api_key[-4:]
     if cfg.apifootball_key:
         cfg.apifootball_key = "****" + cfg.apifootball_key[-4:]
+    if cfg.apibasketball_key:
+        cfg.apibasketball_key = "****" + cfg.apibasketball_key[-4:]
     return cfg
 
 
@@ -713,7 +727,7 @@ async def admin_set_config(cfg: AdminConfig, _: dict = Depends(admin_required)):
     # Don't persist masked placeholders — re-load existing values for any field still masked
     existing = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
     payload = cfg.model_dump()
-    for secret_field in ["flw_secret_key", "flw_encryption_key", "flw_webhook_secret", "smtp_password", "telegram_bot_token", "odds_api_key", "apifootball_key"]:
+    for secret_field in ["flw_secret_key", "flw_encryption_key", "flw_webhook_secret", "smtp_password", "telegram_bot_token", "odds_api_key", "apifootball_key", "apibasketball_key"]:
         v = payload.get(secret_field, "")
         if v and (v.startswith("****") or v == "********"):
             payload[secret_field] = existing.get(secret_field, "")
@@ -721,6 +735,7 @@ async def admin_set_config(cfg: AdminConfig, _: dict = Depends(admin_required)):
     # Re-sync runtime config and reschedule cron
     from odds_api_service import set_runtime_config as set_odds_runtime
     from apifootball_service import set_runtime_config as set_af_runtime
+    from apibasketball_service import set_runtime_config as set_ab_runtime
     set_odds_runtime(
         odds_api_key=payload.get("odds_api_key", ""),
         odds_api_base_url=payload.get("odds_api_base_url", ""),
@@ -728,6 +743,10 @@ async def admin_set_config(cfg: AdminConfig, _: dict = Depends(admin_required)):
     set_af_runtime(
         apifootball_key=payload.get("apifootball_key", ""),
         apifootball_base_url=payload.get("apifootball_base_url", ""),
+    )
+    set_ab_runtime(
+        apibasketball_key=payload.get("apibasketball_key", ""),
+        apibasketball_base_url=payload.get("apibasketball_base_url", ""),
     )
     from scheduler import configure_scheduler
     await configure_scheduler(db)

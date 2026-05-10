@@ -187,7 +187,7 @@ def _fixture_payload(fx: Fixture) -> dict:
         if isinstance(v, list) and not v:
             continue
         base[k] = v
-    # API-Football enrichment (real intel, when available)
+    # API-Football enrichment (real intel for football)
     if fx.af_home_form:
         base["home_recent_form"] = fx.af_home_form
     if fx.af_away_form:
@@ -198,6 +198,13 @@ def _fixture_payload(fx: Fixture) -> dict:
         base["away_injuries"] = fx.af_away_injuries
     if fx.af_h2h:
         base["head_to_head"] = fx.af_h2h
+    # API-Basketball enrichment (real intel for basketball)
+    if fx.ab_home_form:
+        base["home_recent_form"] = fx.ab_home_form
+    if fx.ab_away_form:
+        base["away_recent_form"] = fx.ab_away_form
+    if fx.ab_h2h:
+        base["head_to_head"] = fx.ab_h2h
     return base
 
 

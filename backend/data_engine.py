@@ -11,7 +11,8 @@ import asyncio
 import logging
 from typing import List, Optional
 
-from apifootball_service import enrich_fixture, is_configured as af_configured
+from apifootball_service import enrich_fixture as enrich_football, is_configured as af_configured
+from apibasketball_service import enrich_fixture as enrich_basketball, is_configured as ab_configured
 from models import Fixture
 from odds_api_service import (
     TheOddsAPIError,
@@ -34,19 +35,25 @@ LEAGUE_COUNTRY = {
 
 
 async def _enrich_one(db, fx: Fixture) -> Fixture:
-    if fx.sport != "football" or db is None or not af_configured():
+    if db is None:
         return fx
     try:
-        enrich = await enrich_fixture(db, fx.sport, fx.league, fx.home, fx.away)
+        if fx.sport == "football" and af_configured():
+            enrich = await enrich_football(db, fx.sport, fx.league, fx.home, fx.away)
+            fx.af_home_form = enrich.get("home_form")
+            fx.af_away_form = enrich.get("away_form")
+            fx.af_home_injuries = enrich.get("home_injuries") or []
+            fx.af_away_injuries = enrich.get("away_injuries") or []
+            fx.af_h2h = enrich.get("h2h")
+            fx.data_richness = enrich.get("data_richness", 0.0)
+        elif fx.sport == "basketball" and ab_configured():
+            enrich = await enrich_basketball(db, fx.sport, fx.league, fx.home, fx.away)
+            fx.ab_home_form = enrich.get("home_form")
+            fx.ab_away_form = enrich.get("away_form")
+            fx.ab_h2h = enrich.get("h2h")
+            fx.data_richness = enrich.get("data_richness", 0.0)
     except Exception as e:
         logger.warning("Enrichment failed for %s vs %s: %s", fx.home, fx.away, e)
-        return fx
-    fx.af_home_form = enrich.get("home_form")
-    fx.af_away_form = enrich.get("away_form")
-    fx.af_home_injuries = enrich.get("home_injuries") or []
-    fx.af_away_injuries = enrich.get("away_injuries") or []
-    fx.af_h2h = enrich.get("h2h")
-    fx.data_richness = enrich.get("data_richness", 0.0)
     return fx
 
 
@@ -60,9 +67,9 @@ async def _fetch_real_async(date_str: str, db=None) -> List[Fixture]:
             out.append(Fixture(**d))
         except Exception as e:
             logger.warning("Skipping malformed fixture: %s", e)
-    # Enrich football fixtures with API-Football (best-effort, parallel)
-    if db is not None and af_configured() and out:
-        sem = asyncio.Semaphore(4)  # protect free-tier quota
+    # Enrich fixtures with real intel where we have it (parallel, capped concurrency)
+    if db is not None and (af_configured() or ab_configured()) and out:
+        sem = asyncio.Semaphore(4)
         async def _run(fx):
             async with sem:
                 return await _enrich_one(db, fx)

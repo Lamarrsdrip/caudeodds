@@ -66,4 +66,5 @@ export const api = {
   pushUnsubscribe: (endpoint) => client.post(`/push/unsubscribe`, { endpoint }).then(r => r.data),
   adminPushTest: (title, body) => client.post(`/admin/push/test`, { title, body }).then(r => r.data),
   adminApifootballPreflight: () => client.get(`/admin/apifootball/preflight`).then(r => r.data),
+  adminApibasketballPreflight: () => client.get(`/admin/apibasketball/preflight`).then(r => r.data),
 };

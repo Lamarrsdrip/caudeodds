@@ -19,6 +19,10 @@ const SECTIONS = [
     ["apifootball_base_url", "API Base URL"],
     ["apifootball_key", "API Key", "password"],
   ], hint: "Free tier: 100 req/day (≈1 pipeline run). Pro $19/mo: 7,500/day. Get key at api-football.com. When configured, AI is allowed up to ±6% probability shift; without it, only ±2% (very few picks)."},
+  { key: "apibasketball", title: "API-Basketball (real form & H2H — NBA / EuroLeague)", fields: [
+    ["apibasketball_base_url", "API Base URL"],
+    ["apibasketball_key", "API Key", "password"],
+  ], hint: "SEPARATE subscription from API-Football. Same vendor, $19/mo Pro. Get key at api-basketball.com. Without it, basketball stays on price-only data (orange Market-Data badge)."},
   { key: "cron", title: "Daily Auto-Generate (Cron)", fields: [
     ["cron_enabled", "Enabled", "bool"],
     ["cron_hour_utc", "Hour (UTC, 0-23)", "number"],
@@ -59,6 +63,8 @@ export default function AdminConfig() {
   const [pushBusy, setPushBusy] = useState(false);
   const [afBusy, setAfBusy] = useState(false);
   const [afResult, setAfResult] = useState(null);
+  const [abBusy, setAbBusy] = useState(false);
+  const [abResult, setAbResult] = useState(null);
 
   useEffect(() => { api.adminConfig().then(setCfg); }, []);
 
@@ -86,6 +92,17 @@ export default function AdminConfig() {
       else toast.error(r.error || "Pre-flight failed");
     } catch (e) { toast.error(formatApiError(e)); }
     finally { setAfBusy(false); }
+  };
+
+  const runBasketballPreflight = async () => {
+    setAbBusy(true); setAbResult(null);
+    try {
+      const r = await api.adminApibasketballPreflight();
+      setAbResult(r);
+      if (r.ok) toast.success(`API-Basketball OK · ${r.sample_team} · ${r.requests}/${r.limit_day} used today`);
+      else toast.error(r.error || "Pre-flight failed");
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setAbBusy(false); }
   };
 
   if (!cfg) return null;
@@ -148,6 +165,28 @@ export default function AdminConfig() {
                     {afResult.sample_team && <div>Sample team verified: {afResult.sample_team}</div>}
                     {afResult.requests !== null && <div>API quota today: {afResult.requests} / {afResult.limit_day}</div>}
                     {afResult.error && <div className="text-[#ff6b35] mt-2 leading-relaxed">{afResult.error}</div>}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {sec.key === "apibasketball" && (
+            <div className="space-y-3">
+              <button onClick={runBasketballPreflight} disabled={abBusy} data-testid="apibasketball-preflight-btn"
+                      className="bg-[#00ff66] text-[#050505] hover:bg-[#f5f5f5] font-mono text-[11px] uppercase tracking-widest px-4 py-2 disabled:opacity-50">
+                {abBusy ? "Checking…" : "Run Pre-flight Check"}
+              </button>
+              {abResult && (
+                <div data-testid="apibasketball-preflight-result" className={`p-4 border-l-4 ${abResult.ok ? "border-l-[#00ff66] bg-[#00ff66]/5" : "border-l-[#ff6b35] bg-[#ff6b35]/5"}`}>
+                  <div className="font-heading font-bold text-sm mb-1">
+                    {abResult.ok ? "✓ Live data wired in" : "✗ Cannot use this key for live predictions"}
+                  </div>
+                  <div className="font-mono text-[11px] text-[#a3a3a3] space-y-0.5">
+                    <div>Key configured: {String(abResult.key_configured)}</div>
+                    <div>Current season ({abResult.current_season}): {abResult.current_season_supported ? "✓ supported by your plan" : "✗ NOT in your plan"}</div>
+                    {abResult.sample_team && <div>Sample team verified: {abResult.sample_team}</div>}
+                    {abResult.requests !== null && <div>API quota today: {abResult.requests} / {abResult.limit_day}</div>}
+                    {abResult.error && <div className="text-[#ff6b35] mt-2 leading-relaxed">{abResult.error}</div>}
                   </div>
                 </div>
               )}

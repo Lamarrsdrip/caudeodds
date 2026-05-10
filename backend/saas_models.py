@@ -123,6 +123,9 @@ class AdminConfig(BaseModel):
     # API-Football enrichment (real injuries / form / xG)
     apifootball_key: str = ""  # if blank, server uses APIFOOTBALL_KEY from .env
     apifootball_base_url: str = "https://v3.football.api-sports.io"
+    # API-Basketball enrichment (real form / H2H — sister product, separate sub)
+    apibasketball_key: str = ""
+    apibasketball_base_url: str = "https://v1.basketball.api-sports.io"
     # Daily cron
     cron_enabled: bool = True
     cron_hour_utc: int = Field(default=8, ge=0, le=23)  # 08:00 UTC = 09:00 Lagos
