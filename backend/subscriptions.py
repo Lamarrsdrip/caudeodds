@@ -60,13 +60,15 @@ async def refresh_status(db: AsyncIOMotorDatabase, user: dict) -> dict:
     trial_end_iso = user.get("trial_ends_at")
 
     new_status = "none"
+    sub_active = False
     if sub_end_iso:
         try:
             if datetime.fromisoformat(sub_end_iso) > n:
                 new_status = "active"
+                sub_active = True
         except Exception:
             pass
-    if new_status == "none" and trial_end_iso:
+    if not sub_active and trial_end_iso:
         try:
             if datetime.fromisoformat(trial_end_iso) > n:
                 new_status = "trial"
@@ -74,6 +76,9 @@ async def refresh_status(db: AsyncIOMotorDatabase, user: dict) -> dict:
                 new_status = "expired"
         except Exception:
             pass
+    # If user previously had a paid sub that has now lapsed (no trial), still mark expired
+    if new_status == "none" and sub_end_iso and not sub_active:
+        new_status = "expired"
     if user.get("role") == "admin":
         new_status = "active"
 

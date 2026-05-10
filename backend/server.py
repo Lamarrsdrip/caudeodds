@@ -176,8 +176,7 @@ async def auth_register(payload: RegisterPayload):
 @api.post("/auth/login", response_model=TokenResponse)
 async def auth_login(payload: LoginPayload, request: Request):
     email = payload.email.lower().strip()
-    ip = request.client.host if request.client else "unknown"
-    identifier = f"{ip}:{email}"
+    identifier = email  # email-only: K8s ingress rotates client IPs across pods, so per-IP counters fragment
 
     if await is_locked(db, identifier):
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
@@ -490,13 +489,32 @@ async def admin_reject_payment(payment_id: str, note: str = "", _: dict = Depend
 @api.get("/admin/config", response_model=AdminConfig)
 async def admin_get_config(_: dict = Depends(admin_required)):
     doc = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
-    return AdminConfig(**doc)
+    cfg = AdminConfig(**doc)
+    # Mask secrets on GET so they're not echoed in admin UI logs / screenshots
+    if cfg.flw_secret_key:
+        cfg.flw_secret_key = "****" + cfg.flw_secret_key[-4:]
+    if cfg.flw_encryption_key:
+        cfg.flw_encryption_key = "****" + cfg.flw_encryption_key[-4:]
+    if cfg.flw_webhook_secret:
+        cfg.flw_webhook_secret = "****" + cfg.flw_webhook_secret[-4:]
+    if cfg.smtp_password:
+        cfg.smtp_password = "********"
+    if cfg.telegram_bot_token:
+        cfg.telegram_bot_token = "****" + cfg.telegram_bot_token[-4:]
+    return cfg
 
 
 @api.post("/admin/config", response_model=AdminConfig)
 async def admin_set_config(cfg: AdminConfig, _: dict = Depends(admin_required)):
     cfg.updated_at = datetime.now(timezone.utc).isoformat()
-    await admin_cfg_col.update_one({"_id": "main"}, {"$set": cfg.model_dump()}, upsert=True)
+    # Don't persist masked placeholders — re-load existing values for any field still masked
+    existing = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
+    payload = cfg.model_dump()
+    for secret_field in ["flw_secret_key", "flw_encryption_key", "flw_webhook_secret", "smtp_password", "telegram_bot_token"]:
+        v = payload.get(secret_field, "")
+        if v and (v.startswith("****") or v == "********"):
+            payload[secret_field] = existing.get(secret_field, "")
+    await admin_cfg_col.update_one({"_id": "main"}, {"$set": payload}, upsert=True)
     return cfg
 
 
