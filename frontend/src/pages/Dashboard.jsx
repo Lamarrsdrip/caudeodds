@@ -127,7 +127,7 @@ export default function Dashboard() {
           <div>
             <div className="flex items-center gap-3 flex-wrap mb-2">
               <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight">{headingLabel}</h1>
-              {isTomorrow && (
+              {isTomorrow && !awaitingTomorrow && (
                 <span data-testid="tomorrow-badge" className="px-2 py-1 bg-[#00ff66] text-[#050505] font-mono text-[10px] uppercase tracking-widest font-bold">
                   Next-day rollover
                 </span>

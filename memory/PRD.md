@@ -45,8 +45,16 @@ Users place real money on these picks. Every fixture, price, calculation, and pr
 - **Strategy cap hard-enforced** at runtime in slip_builder (combined_odds ≤ 5.0, leg_count ≤ 5)
 - **Per-leg EV + book_implied_prob** now exposed in API response and rendered on UI
 
+### Phase 5 — PWA auto-update + Public ROI + Next-day rollover (2026-05-10)
+- **PWA auto-update** — `sw.js` now stamps `BUILD_VERSION`, handles `SKIP_WAITING` messages, broadcasts `SW_ACTIVATED` and clears stale Cache Storage on activate. New `PwaUpdater.jsx` component polls for updates every 60s, listens for `controllerchange`, and shows a "New version installed — refreshing…" toast that auto-reloads in 1.5s. Reload only fires when an existing controller is replaced (real update), not on first install — preventing reload loops.
+- **Public ROI Tracker** — new public endpoint `GET /api/public/roi?days=30` (no auth) aggregates settled slips into totals (slips_settled, won, lost, void, pending, profit_units, roi_pct, win_rate_pct) plus per-day outcome history. Rendered on `/` via `PublicRoiTracker.jsx` with KPI strip + 14-row history list — honest, transparent track-record for free-to-paid conversion.
+- **Next-day rollover** — refactored `GET /api/slip/today` with `_build_slip_for_date` helper + `_should_rollover` triggers (all settled OR ≥22:00 UTC OR latest kickoff +3h past + settled). When today is done, returns `is_tomorrow:true` with tomorrow's slip, or `awaiting_tomorrow:true` if not yet generated. Dashboard renders dedicated cards ("TOMORROW'S COMBINED SLIP" + Next-day rollover badge OR awaiting card).
+- **Tomorrow pre-gen cron** — scheduler.py adds `_run_tomorrow_pregen` job running daily at 22:00 UTC so tomorrow's slip is ready the moment today's slate ends.
+- **Admin Pre-Gen Tomorrow** button on `/admin/predictions` → `POST /api/slip/generate?date=tomorrow`. Endpoint also accepts explicit `YYYY-MM-DD` dates with proper 400 on invalid input.
+
 ## Validated
-- 100% pass on iter_3, iter_4, iter_5 testing-agent runs (40+ backend pytest cases + comprehensive frontend audit on desktop and mobile 390x844)
+- 100% pass on iter_3 / iter_4 / iter_5 / **iter_6** testing-agent runs (32 backend pytest passing + 3 expected skips; comprehensive frontend audit desktop+mobile 390x844, 0 console errors across /, /dashboard, /admin/predictions, /pricing, /subscription)
+- iter_6: Phase-5 features (PWA auto-update / Public ROI / Next-day rollover) all verified end-to-end via public URL
 - Real fixtures: Nottingham Forest, Newcastle, Bayern Munich, AC Milan, 76ers, Knicks, etc.
 - Subscription page: 0 console errors after import fix; both Flutterwave and Bank Transfer panes render and accept input
 - Mobile: hamburger drawer, bottom nav, responsive KPI strip, 44px+ touch targets — all functional

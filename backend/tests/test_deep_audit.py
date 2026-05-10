@@ -63,6 +63,12 @@ class TestAIRealism:
                          headers=admin_headers, timeout=20)
         assert r.status_code == 200, r.text
         body = r.json()
+        # Rollover-aware: when today has no picks and we're past 22:00 UTC,
+        # the endpoint surfaces the awaiting_tomorrow state. That's correct
+        # behaviour, not a bug — skip realism assertions in that case.
+        if body.get("awaiting_tomorrow") or body.get("awaiting_data"):
+            import pytest
+            pytest.skip("Slip not yet generated (rollover/awaiting state) — seed via POST /api/slip/generate to run realism checks")
         slip = body.get("slip") or body
         assert body.get("locked") is False, "Admin should not get locked teaser"
         legs = slip.get("legs") or []
