@@ -1,6 +1,7 @@
 """Server: CLAUDEODD SaaS — auth, subscriptions, payments, admin, slips."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import uuid
@@ -76,6 +77,8 @@ users_col = db.users
 sub_col = db.subscriptions
 pay_col = db.payments
 attempt_col = db.login_attempts
+slip_codes_col = db.claudeodd_slip_codes  # admin-set SportyBet booking codes per date
+jobs_col = db.claudeodd_jobs  # background pipeline job tracking
 
 app = FastAPI(title="CLAUDEODD")
 app.state.db = db
@@ -230,8 +233,10 @@ async def slip_today(request: Request):
     docs = await picks_col.find({"date": date_str}, {"_id": 0}).to_list(50)
     cfg = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
     sb_url = cfg.get("sportybet_handle", "https://www.sportybet.com/ng/")
+    code_doc = await slip_codes_col.find_one({"_id": date_str}, {"_id": 0}) or {}
+    manual_code = code_doc.get("code", "")
     picks = [Pick(**d) for d in docs]
-    slip = build_slip(date_str, picks, sportybet_url=sb_url)
+    slip = build_slip(date_str, picks, sportybet_url=sb_url, manual_code=manual_code)
 
     # Check user
     locked = True
@@ -273,35 +278,111 @@ async def slip_today(request: Request):
     return {"date": date_str, "slip": slip.model_dump(), "locked": False}
 
 
+# ------------------ Admin: SportyBet booking code per date ------------------
+
+@api.get("/admin/slip/code")
+async def admin_get_slip_code(date: Optional[str] = None, _: dict = Depends(admin_required)):
+    d = date or today_str()
+    doc = await slip_codes_col.find_one({"_id": d}, {"_id": 0}) or {}
+    return {"date": d, "code": doc.get("code", ""), "updated_at": doc.get("updated_at")}
+
+
+@api.post("/admin/slip/code")
+async def admin_set_slip_code(payload: dict, _: dict = Depends(admin_required)):
+    """Body: { code: 'STQLE2', date?: 'YYYY-MM-DD' }."""
+    code = (payload.get("code") or "").strip().upper()
+    d = (payload.get("date") or today_str()).strip()
+    if code and not (3 <= len(code) <= 12 and code.isalnum()):
+        raise HTTPException(status_code=400, detail="Booking code must be 3-12 alphanumeric chars")
+    await slip_codes_col.update_one(
+        {"_id": d},
+        {"$set": {"code": code, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"date": d, "code": code}
+
+
 @api.post("/slip/generate")
 async def slip_generate(force: bool = False, _: dict = Depends(admin_required)):
-    """Admin-triggered generation. Wraps the ensemble pipeline."""
+    """Admin-triggered generation. Returns immediately with a job_id; the actual
+    AI ensemble runs in a background task to avoid Kubernetes ingress timeouts."""
     date_str = today_str()
-    settings_doc = await settings_col.find_one({"_id": "main"}, {"_id": 0})
-    settings = Settings(**settings_doc) if settings_doc else Settings()
 
     if not force:
         run = await runs_col.find_one({"_id": date_str}, {"_id": 0})
         if run:
             cached = await picks_col.find({"date": date_str}, {"_id": 0}).to_list(50)
-            return {"date": date_str, "cached": True, "picks": len(cached)}
+            return {"date": date_str, "cached": True, "picks": len(cached),
+                    "fixtures_analyzed": run.get("fixtures_analyzed", 0),
+                    "rejected": run.get("rejected_count", 0),
+                    "status": "completed", "job_id": None}
 
-    picks, rejections, total = await run_pipeline(date_str, settings)
-    if force:
-        await picks_col.delete_many({"date": date_str})
-        await rej_col.delete_many({"date": date_str})
-    if picks:
-        await picks_col.insert_many([p.model_dump() for p in picks])
-    if rejections:
-        await rej_col.insert_many([r.model_dump() for r in rejections])
-    await runs_col.update_one(
-        {"_id": date_str},
-        {"$set": {"date": date_str, "rejected_count": len(rejections), "fixtures_analyzed": total,
-                  "completed_at": datetime.now(timezone.utc).isoformat()}},
-        upsert=True,
+    # Reject if a job is already running for today
+    existing_job = await jobs_col.find_one(
+        {"date": date_str, "status": "running"}, {"_id": 0}
     )
-    return {"date": date_str, "cached": False, "picks": len(picks), "rejected": len(rejections),
-            "fixtures_analyzed": total}
+    if existing_job:
+        return {"date": date_str, "cached": False, "status": "running",
+                "job_id": existing_job["id"], "message": "A generation job is already running"}
+
+    job_id = str(uuid.uuid4())
+    await jobs_col.insert_one({
+        "id": job_id,
+        "date": date_str,
+        "status": "running",
+        "force": force,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None,
+        "picks": 0,
+        "rejected": 0,
+        "fixtures_analyzed": 0,
+        "error": None,
+    })
+
+    async def _runner():
+        try:
+            settings_doc = await settings_col.find_one({"_id": "main"}, {"_id": 0})
+            settings = Settings(**settings_doc) if settings_doc else Settings()
+            picks, rejections, total = await run_pipeline(date_str, settings)
+            if force:
+                await picks_col.delete_many({"date": date_str})
+                await rej_col.delete_many({"date": date_str})
+            if picks:
+                await picks_col.insert_many([p.model_dump() for p in picks])
+            if rejections:
+                await rej_col.insert_many([r.model_dump() for r in rejections])
+            await runs_col.update_one(
+                {"_id": date_str},
+                {"$set": {"date": date_str, "rejected_count": len(rejections),
+                          "fixtures_analyzed": total,
+                          "completed_at": datetime.now(timezone.utc).isoformat()}},
+                upsert=True,
+            )
+            await jobs_col.update_one({"id": job_id}, {"$set": {
+                "status": "completed",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "picks": len(picks), "rejected": len(rejections),
+                "fixtures_analyzed": total,
+            }})
+            logger.info("Pipeline job %s complete: picks=%d rejected=%d fx=%d", job_id, len(picks), len(rejections), total)
+        except Exception as e:
+            logger.exception("Pipeline job %s failed: %s", job_id, e)
+            await jobs_col.update_one({"id": job_id}, {"$set": {
+                "status": "failed",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "error": str(e)[:500],
+            }})
+
+    asyncio.create_task(_runner())
+    return {"date": date_str, "cached": False, "status": "running", "job_id": job_id}
+
+
+@api.get("/slip/generate/status/{job_id}")
+async def slip_generate_status(job_id: str, _: dict = Depends(admin_required)):
+    job = await jobs_col.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 @api.get("/slip/history")
@@ -316,10 +397,12 @@ async def slip_history(limit: int = 60, user: dict = Depends(get_current_user_de
         by_date.setdefault(d["date"], []).append(d)
     cfg = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
     sb_url = cfg.get("sportybet_handle", "https://www.sportybet.com/ng/")
+    code_docs = await slip_codes_col.find({}, {"_id": 1, "code": 1}).to_list(2000)
+    code_by_date = {d["_id"]: d.get("code", "") for d in code_docs}
     out = []
     for date in sorted(by_date.keys(), reverse=True)[:limit]:
         picks = [Pick(**p) for p in by_date[date]]
-        slip = build_slip(date, picks, sportybet_url=sb_url)
+        slip = build_slip(date, picks, sportybet_url=sb_url, manual_code=code_by_date.get(date, ""))
         if slip:
             d = slip.model_dump()
             # legs status from picks

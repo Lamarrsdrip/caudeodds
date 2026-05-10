@@ -12,10 +12,10 @@ export default function AppHeader({ children }) {
   return (
     <header className="border-b border-[#262626] bg-[#050505] sticky top-0 z-30" data-testid="app-header">
       <div className="px-6 py-4 flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2" data-testid="brand-link">
-          <div className="w-2 h-2 bg-[#00ff66] co-pulse" />
+        <Link to="/" className="flex items-center gap-3" data-testid="brand-link">
+          <img src="/logo-icon.png" alt="ClaudeOdds" className="w-9 h-9 object-contain" />
           <h1 className="font-heading font-black text-2xl tracking-tight">ClaudeOdds</h1>
-          <span className="font-mono text-[10px] text-[#525252] tracking-widest uppercase pl-2 border-l border-[#262626]">
+          <span className="font-mono text-[10px] text-[#525252] tracking-widest uppercase pl-2 border-l border-[#262626] hidden sm:inline">
             AI&nbsp;BETTING&nbsp;COMPANION
           </span>
         </Link>

@@ -57,6 +57,7 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
 
   const evColor = slip.expected_value > 0 ? "text-[#00ff66]" : "text-[#ff3333]";
   const riskTag = slip.risk_level === "LOW" ? "co-tag-pos" : slip.risk_level === "HIGH" ? "co-tag-neg" : "co-tag-warn";
+  const codeReady = !!slip.sportybet_code && slip.sportybet_code !== "LOCKED";
 
   return (
     <div className="space-y-5" data-testid="daily-slip">
@@ -77,23 +78,41 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
       </div>
 
       {/* SportyBet bar */}
-      <div className="co-card p-5 flex items-center justify-between flex-wrap gap-4" data-testid="sportybet-bar">
-        <div className="flex items-center gap-4">
-          <div className="px-3 py-1 bg-[#00ff66] text-[#050505] font-mono text-[10px] uppercase tracking-widest font-bold">
-            SportyBet Code
+      {codeReady ? (
+        <div className="co-card p-5 flex items-center justify-between flex-wrap gap-4" data-testid="sportybet-bar">
+          <div className="flex items-center gap-4">
+            <div className="px-3 py-1 bg-[#00ff66] text-[#050505] font-mono text-[10px] uppercase tracking-widest font-bold">
+              SportyBet Code
+            </div>
+            <code className="font-mono text-3xl font-black tracking-[0.2em]" data-testid="sportybet-code">{slip.sportybet_code}</code>
           </div>
-          <code className="font-mono text-3xl font-black tracking-[0.2em]" data-testid="sportybet-code">{slip.sportybet_code}</code>
+          <div className="flex items-center gap-2">
+            <button onClick={copyCode} data-testid="copy-code-btn" className="border border-[#262626] hover:border-[#525252] hover:bg-[#1a1a1a] font-mono text-[11px] uppercase tracking-widest px-4 py-2 inline-flex items-center gap-2">
+              {copied ? <><CheckCircle2 className="w-3.5 h-3.5 text-[#00ff66]"/> Copied</> : <><Copy className="w-3.5 h-3.5"/> Copy Code</>}
+            </button>
+            <a href={slip.sportybet_url} target="_blank" rel="noopener noreferrer" data-testid="open-sportybet"
+               className="bg-[#f5f5f5] text-[#050505] font-mono text-[11px] uppercase tracking-widest px-4 py-2 hover:bg-[#00ff66] inline-flex items-center gap-2">
+              <ExternalLink className="w-3.5 h-3.5"/> Open SportyBet
+            </a>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={copyCode} data-testid="copy-code-btn" className="border border-[#262626] hover:border-[#525252] hover:bg-[#1a1a1a] font-mono text-[11px] uppercase tracking-widest px-4 py-2 inline-flex items-center gap-2">
-            {copied ? <><CheckCircle2 className="w-3.5 h-3.5 text-[#00ff66]"/> Copied</> : <><Copy className="w-3.5 h-3.5"/> Copy Code</>}
-          </button>
-          <a href={slip.sportybet_url} target="_blank" rel="noopener noreferrer" data-testid="open-sportybet"
-             className="bg-[#f5f5f5] text-[#050505] font-mono text-[11px] uppercase tracking-widest px-4 py-2 hover:bg-[#00ff66] inline-flex items-center gap-2">
-            <ExternalLink className="w-3.5 h-3.5"/> Open SportyBet
-          </a>
+      ) : !locked && (
+        <div className="co-card p-5 border-l-4 border-l-[#00ff66]" data-testid="sportybet-pending">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-[#00ff66] shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <div className="font-heading font-bold text-base">Booking code being prepared</div>
+              <p className="text-sm text-[#a3a3a3] leading-relaxed mt-1">
+                SportyBet booking codes can only be issued by SportyBet itself. Our team is building today's slip on SportyBet now and will publish the real code here shortly. In the meantime you can manually add the picks below to your SportyBet slip.
+              </p>
+              <a href={slip.sportybet_url} target="_blank" rel="noopener noreferrer"
+                 className="mt-3 inline-flex items-center gap-2 bg-[#f5f5f5] text-[#050505] font-mono text-[11px] uppercase tracking-widest px-4 py-2 hover:bg-[#00ff66]">
+                <ExternalLink className="w-3.5 h-3.5"/> Open SportyBet
+              </a>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Status summary */}
       {slip.status_summary && (

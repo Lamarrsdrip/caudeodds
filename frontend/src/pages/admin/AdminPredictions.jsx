@@ -5,9 +5,13 @@ import { toast } from "sonner";
 export default function AdminPredictions() {
   const [preds, setPreds] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [code, setCode] = useState("");
+  const [savedCode, setSavedCode] = useState("");
+  const [savingCode, setSavingCode] = useState(false);
 
   const refresh = () => api.adminPredictions().then(setPreds);
-  useEffect(() => { refresh(); }, []);
+  const refreshCode = () => api.adminGetSlipCode().then(d => { setCode(d.code || ""); setSavedCode(d.code || ""); }).catch(() => {});
+  useEffect(() => { refresh(); refreshCode(); }, []);
 
   const settle = async (id, result) => {
     try { await api.adminSettle(id, result); toast.success(`Marked ${result}`); refresh(); }
@@ -18,10 +22,52 @@ export default function AdminPredictions() {
     setBusy(true);
     try {
       const r = await api.adminGenerate(force);
-      toast.success(`Done. ${r.cached ? "Cached" : "Generated"} · picks: ${r.picks ?? 0}`);
-      refresh();
+      if (r.status === "completed" || r.cached) {
+        toast.success(`Done. ${r.cached ? "Cached" : "Generated"} · picks: ${r.picks ?? 0} · fixtures analyzed: ${r.fixtures_analyzed ?? 0}`);
+        refresh();
+        setBusy(false);
+        return;
+      }
+      if (r.status === "running" && r.job_id) {
+        toast.info("AI ensemble running on real fixtures — this takes 1-3 minutes…");
+        // Poll every 4 seconds, max 5 minutes
+        const jobId = r.job_id;
+        for (let i = 0; i < 75; i++) {
+          await new Promise(res => setTimeout(res, 4000));
+          try {
+            const st = await api.adminGenerateStatus(jobId);
+            if (st.status === "completed") {
+              toast.success(`Generated · picks: ${st.picks ?? 0} · fixtures analyzed: ${st.fixtures_analyzed ?? 0} · rejected: ${st.rejected ?? 0}`);
+              refresh();
+              setBusy(false);
+              return;
+            }
+            if (st.status === "failed") {
+              toast.error(`Pipeline failed: ${st.error || "unknown error"}`);
+              setBusy(false);
+              return;
+            }
+          } catch (e) { /* keep polling */ }
+        }
+        toast.error("Generation timed out after 5 minutes — check backend logs.");
+      }
     } catch (e) { toast.error(formatApiError(e)); }
     finally { setBusy(false); }
+  };
+
+  const saveCode = async () => {
+    const c = code.trim().toUpperCase();
+    if (c && !/^[A-Z0-9]{3,12}$/.test(c)) {
+      toast.error("Code must be 3-12 letters/numbers");
+      return;
+    }
+    setSavingCode(true);
+    try {
+      await api.adminSetSlipCode(c);
+      setSavedCode(c);
+      toast.success(c ? `SportyBet code "${c}" published to subscribers` : "SportyBet code cleared");
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setSavingCode(false); }
   };
 
   return (
@@ -35,6 +81,51 @@ export default function AdminPredictions() {
           <button onClick={() => generate(true)} disabled={busy} data-testid="pred-gen-force" className="bg-[#00ff66] text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 hover:bg-[#f5f5f5] disabled:opacity-50">
             {busy ? "Running…" : "Force Re-Generate"}
           </button>
+        </div>
+      </div>
+
+      {/* SportyBet booking code admin input */}
+      <div className="co-card p-5" data-testid="admin-sb-code">
+        <div className="text-[10px] font-mono uppercase tracking-widest text-[#525252] mb-2">// Today's SportyBet Booking Code</div>
+        <p className="text-xs text-[#a3a3a3] mb-4 leading-relaxed">
+          Build today's slip on SportyBet using the picks below, copy the booking code SportyBet gives you,
+          and paste it here. Subscribers will see the real, working code on their dashboard.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            placeholder="e.g. STQLE2"
+            maxLength={12}
+            data-testid="sb-code-input"
+            className="bg-[#0a0a0a] border border-[#262626] focus:border-[#00ff66] outline-none font-mono text-2xl tracking-[0.2em] px-4 py-3 w-64 uppercase"
+          />
+          <button
+            onClick={saveCode}
+            disabled={savingCode || code.trim().toUpperCase() === savedCode}
+            data-testid="sb-code-save"
+            className="bg-[#00ff66] text-[#050505] font-mono text-xs uppercase tracking-widest px-5 py-3 hover:bg-[#f5f5f5] disabled:opacity-50"
+          >
+            {savingCode ? "Saving…" : savedCode ? "Update Code" : "Publish Code"}
+          </button>
+          {savedCode && (
+            <button
+              onClick={() => { setCode(""); }}
+              className="border border-[#262626] hover:bg-[#1a1a1a] font-mono text-xs uppercase tracking-widest px-4 py-3"
+            >
+              Clear
+            </button>
+          )}
+          {savedCode && (
+            <span className="font-mono text-[10px] uppercase tracking-widest text-[#00ff66] inline-flex items-center gap-2">
+              ● Live to subscribers: <code className="text-[#f5f5f5]">{savedCode}</code>
+            </span>
+          )}
+          {!savedCode && (
+            <span className="font-mono text-[10px] uppercase tracking-widest text-[#a3a3a3]">
+              No code set — subscribers see "code being prepared"
+            </span>
+          )}
         </div>
       </div>
 

@@ -37,37 +37,50 @@ GPT_MODEL = ("openai", "gpt-4o-mini")
 CLAUDE_MODEL = ("anthropic", "claude-haiku-4-5-20251001")
 
 
-RESEARCH_SYSTEM = """You are a SPORTS RESEARCH ANALYST. Your job is NOT to predict
-the outcome — it is to extract and synthesise SPECIFIC verifiable facts from the
-fixture data that a betting analyst can rely on. You are evidence-first.
+RESEARCH_SYSTEM = """You are a SPORTS RESEARCH ANALYST working from BOOKMAKER MARKET DATA
+(real fixtures + decimal odds aggregated across 5-15 sharp + public books). Your job
+is NOT to predict the outcome — it is to extract SPECIFIC verifiable signals the
+bookmakers themselves are pricing.
 
-Process:
-1. Parse the fixture data carefully (odds, line movement, sharp_money_pct,
-   public_money_pct, injuries, form, xg, pace, fatigue, referee, weather).
-2. Identify FACTS that materially shift true probability.
-3. For each fact, score its credibility (0-100) and impact direction (HOME, AWAY, OVER, UNDER, BTTS_YES, BTTS_NO, NONE).
-4. Compute a research_quality_score (0-100) — high if you found multiple
-   high-credibility, non-conflicting facts; low if data is sparse or facts
-   conflict.
+The PRIMARY SIGNAL on this feed is bookmaker market intelligence:
+ - Implied probabilities from 1X2 / moneyline / totals (the consensus of all books)
+ - Liquidity / number of books pricing the market (more books = more reliable)
+ - Volatility (price dispersion across books — low = strong consensus)
+ - Sharp vs public split (sharp_money_pct, public_money_pct) — sharp money is the
+   smartest indicator of true probability available pre-match
+ - Line dispersion → if home is 1.65 across books with low variance, that's a
+   high-credibility signal regardless of injury / xG / weather
+
+If injury / xG / form / weather / referee fields are null or missing, this is
+NORMAL — this feed is market-data only. Do NOT penalise research_quality_score
+for missing scout data. Rate quality based on the QUALITY of the market signal:
+  - 80-100: many books, low volatility, clear sharp consensus
+  - 50-80:  decent book coverage, moderate volatility, partial sharp signal
+  - <50:    few books, high volatility, conflicting sharp/public
 
 Return STRICT JSON ONLY:
 {
   "facts": [
-    {"claim": "<concise fact>", "credibility": <0-100>, "direction": "<HOME|AWAY|OVER|UNDER|BTTS_YES|BTTS_NO|NONE>", "weight": <0-1>}
+    {"claim": "<concise market-derived fact>", "credibility": <0-100>, "direction": "<HOME|AWAY|OVER|UNDER|BTTS_YES|BTTS_NO|NONE>", "weight": <0-1>}
   ],
   "consensus_direction": "<HOME|AWAY|OVER|UNDER|BTTS_YES|BTTS_NO|NONE>",
   "research_quality_score": <0-100>,
   "key_risks": ["<risk>", ...],
-  "summary": "<3 sentences max>"
+  "summary": "<3 sentences max — describe the MARKET picture: who books favour, by how much, sharp/public split, line stability>"
 }
 
-If the data is too thin to find ANY high-credibility facts, set
-research_quality_score < 40 and consensus_direction = "NONE"."""
+Only return consensus_direction = NONE if the market itself is a coin-flip
+(volatility > 0.6 AND no clear sharp lean)."""
 
 
 QUANT_SYSTEM = """You are an elite QUANTITATIVE sports betting analyst at a hedge fund.
-Use the RESEARCH OUTPUT (provided) plus the raw fixture data to find the SINGLE
-best-edge market with measurable positive EV vs bookmaker implied probability.
+Use the RESEARCH OUTPUT (provided) plus the bookmaker market data to find the SINGLE
+best-edge market with measurable positive EV vs the bookmaker implied probability.
+
+This data feed is MARKET-DATA ONLY (real fixtures + multi-book decimal odds). Missing
+injury / xG / weather fields are normal — your edge comes from finding mispricings
+the books haven't fully closed (e.g. sharp money flowing one way while public bets
+the other, or one market where dispersion creates an anchor opportunity).
 
 NEVER invent stats or contradict the research. If research_quality_score < 50,
 reduce confidence and flag low_edge.
@@ -88,17 +101,24 @@ Return STRICT JSON ONLY:
   "expected_value": <float>,
   "confidence": <float 0-100>,
   "edge_pct": <float>,
-  "rationale": "<2 sentences citing specific research facts>",
+  "rationale": "<2 sentences citing specific market signals>",
   "flags": ["<volatility_high|low_liquidity|sharp_disagreement|low_edge|none>"]
 }"""
 
 
-REASONING_SYSTEM = """You are an elite TACTICAL sports analyst.
-Use the RESEARCH OUTPUT (provided) plus tactical lens (coach matchups, momentum,
-narrative risk, referee, weather, fatigue, public bias) to recommend the best
-market. You are SKEPTICAL but constructive.
+REASONING_SYSTEM = """You are an elite TACTICAL sports analyst working from BOOKMAKER
+MARKET DATA. This data feed is PRICE-LEVEL ONLY (no injury / lineup / weather feeds);
+do NOT reject a bet purely because injury or xG fields are null — that is normal here.
 
-Use the SAME enum values as quant. NO_BET if no edge.
+Use the RESEARCH OUTPUT (market signals: sharp/public split, liquidity, volatility,
+line dispersion, implied probabilities) plus a tactical lens (which side the sharp
+books are pricing more aggressively, which side the public is on, narrative bias).
+
+Recommend the best market. NO_BET ONLY if:
+ - the market itself is a coin-flip (volatility>0.6 with no sharp lean), OR
+ - quant and the market signals point in genuinely conflicting directions
+
+Use the SAME enum values as quant.
 
 Return STRICT JSON ONLY:
 {
@@ -140,17 +160,28 @@ def _strip_json(s: str) -> str:
 
 
 def _fixture_payload(fx: Fixture) -> dict:
-    return {
+    """Build the LLM payload, omitting fields the bookmaker feed doesn't supply
+    so the agents focus on the market signal that IS present."""
+    base = {
         "sport": fx.sport, "league": fx.league,
         "match": f"{fx.home} vs {fx.away}", "kickoff": fx.kickoff,
         "odds": fx.odds, "line_movement": fx.line_movement,
         "sharp_money_pct": fx.sharp_money_pct, "public_money_pct": fx.public_money_pct,
         "liquidity_score": fx.liquidity_score, "volatility": fx.volatility,
+    }
+    optional = {
         "injuries": fx.injuries, "xg": fx.xg, "pace": fx.pace,
         "home_form": fx.home_form, "away_form": fx.away_form,
         "travel_fatigue": fx.travel_fatigue, "referee_tendency": fx.referee_tendency,
         "weather": fx.weather,
     }
+    for k, v in optional.items():
+        if v is None:
+            continue
+        if isinstance(v, list) and not v:
+            continue
+        base[k] = v
+    return base
 
 
 async def _llm(model_provider: tuple, system: str, payload: str, session_prefix: str, fx_id: str) -> dict | None:
@@ -214,8 +245,8 @@ async def run_ensemble(fx: Fixture) -> tuple[QuantOutput | None, ReasoningOutput
     if research is None:
         return None, None, None
     quality = float(research.get("research_quality_score", 0))
-    if quality < 35:
-        logger.info("Skipping %s vs %s — research quality %.0f < 35", fx.home, fx.away, quality)
+    if quality < 25:
+        logger.info("Skipping %s vs %s — research quality %.0f < 25", fx.home, fx.away, quality)
         return None, None, research
 
     quant_task = asyncio.create_task(run_quant(fx, research))

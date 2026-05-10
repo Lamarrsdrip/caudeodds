@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import List, Tuple
 
 from consensus import evaluate, select_top
-from data_engine import generate_fixtures_for_date
+from data_engine import generate_fixtures_for_date_async
 from filters import filter_fixtures
 from llm_engines import run_ensemble
 from models import Pick, RejectionLog, Settings
@@ -20,7 +20,7 @@ def today_str() -> str:
 
 
 async def run_pipeline(date_str: str, settings: Settings) -> Tuple[List[Pick], List[RejectionLog], int]:
-    fixtures = generate_fixtures_for_date(date_str)
+    fixtures = await generate_fixtures_for_date_async(date_str)
     if settings.sport_filter != "all":
         fixtures = [f for f in fixtures if f.sport == settings.sport_filter]
     total_fixtures = len(fixtures)
@@ -29,7 +29,7 @@ async def run_pipeline(date_str: str, settings: Settings) -> Tuple[List[Pick], L
     logger.info("Filter kept %d / %d fixtures for %s", len(kept), total_fixtures, date_str)
 
     # Run ensemble concurrently across kept fixtures
-    sem = asyncio.Semaphore(6)  # cap concurrency
+    sem = asyncio.Semaphore(12)  # bump from 6 → 12: same total LLM credit, half wall-time
 
     async def analyze(fx):
         async with sem:

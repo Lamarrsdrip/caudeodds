@@ -57,5 +57,8 @@ export const api = {
   adminPredictions: (date) => client.get(`/admin/predictions${date ? `?date=${date}` : ""}`).then(r => r.data),
   adminSettle: (id, result) => client.post(`/admin/predictions/${id}/settle`, { result }).then(r => r.data),
   adminGenerate: (force = false) => client.post(`/slip/generate?force=${force}`).then(r => r.data),
+  adminGenerateStatus: (jobId) => client.get(`/slip/generate/status/${jobId}`).then(r => r.data),
   adminRejected: (date) => client.get(`/admin/rejected${date ? `?date=${date}` : ""}`).then(r => r.data),
+  adminGetSlipCode: (date) => client.get(`/admin/slip/code${date ? `?date=${date}` : ""}`).then(r => r.data),
+  adminSetSlipCode: (code, date) => client.post(`/admin/slip/code`, { code, date }).then(r => r.data),
 };

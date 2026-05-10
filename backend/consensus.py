@@ -77,7 +77,7 @@ def evaluate(
 
     if quant is None or reasoning is None:
         # Could be due to research-quality gate
-        if research is not None and float(research.get("research_quality_score", 0)) < 35:
+        if research is not None and float(research.get("research_quality_score", 0)) < 25:
             return None, RejectionLog(
                 date=date_str, match=match, sport=fx.sport,
                 reason_code="LOW_RESEARCH",
@@ -105,14 +105,23 @@ def evaluate(
         )
 
     # Research consensus check (3rd guardrail)
+    # Only flag a conflict when research and quant point to the SAME dimension
+    # (both 1X2 side, both totals, or both BTTS) — research_dir HOME and a
+    # quant pick on OVER are independent dimensions, not a conflict.
     if research is not None:
         rd = (research.get("consensus_direction") or "").upper()
-        if rd and rd != "NONE" and rd != quant_side:
-            return None, RejectionLog(
-                date=date_str, match=match, sport=fx.sport,
-                reason_code="EVIDENCE_CONFLICT",
-                reason=f"Research evidence points {rd}, but models picked {quant_side} — refusing trade",
-            )
+        same_dim_groups = [
+            {"HOME", "AWAY", "DRAW"},
+            {"OVER", "UNDER"},
+            {"BTTS_YES", "BTTS_NO"},
+        ]
+        for grp in same_dim_groups:
+            if rd in grp and quant_side in grp and rd != quant_side:
+                return None, RejectionLog(
+                    date=date_str, match=match, sport=fx.sport,
+                    reason_code="EVIDENCE_CONFLICT",
+                    reason=f"Research evidence points {rd}, but models picked {quant_side} — refusing trade",
+                )
 
     ensemble_conf = (quant.confidence + reasoning.tactical_confidence) / 2
     if ensemble_conf < settings.min_confidence:

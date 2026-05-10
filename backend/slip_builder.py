@@ -2,10 +2,14 @@
 
 Goal: combine 3-5 highest-confidence games such that the combined (multiplied)
 decimal odds land in the user-friendly [2.0, 5.0] range. Cap at 5.0 odds.
+
+SportyBet booking codes can ONLY be issued by SportyBet itself when the slip is
+manually built on their platform — no third-party can generate a working code.
+We therefore leave the field empty by default; the admin pastes the real code
+into the admin panel after building the slip on SportyBet.
 """
 from __future__ import annotations
 
-import hashlib
 from typing import List
 
 from saas_models import CombinedSlip, SlipLeg
@@ -23,6 +27,8 @@ LEAGUE_COUNTRY = {
     "Serie A": ("Italy", "ITA"),
     "Bundesliga": ("Germany", "GER"),
     "Ligue 1": ("France", "FRA"),
+    "Champions League": ("Europe", "UCL"),
+    "Europa League": ("Europe", "UEL"),
     "NBA": ("USA", "USA"),
     "EuroLeague": ("Europe", "EUR"),
 }
@@ -30,22 +36,6 @@ LEAGUE_COUNTRY = {
 
 def league_country(league: str) -> tuple[str, str]:
     return LEAGUE_COUNTRY.get(league, ("Intl", "INT"))
-
-
-def make_sportybet_code(date_str: str, picks: List) -> str:
-    """SportyBet-style booking code: 5-7 char uppercase alphanumeric, no dashes.
-    Examples seen on sportybet.com: STQLE2, PW5888, B3K9XY.
-    """
-    seed = date_str + "|" + "|".join(f"{p.match}-{p.market}" for p in picks)
-    h = hashlib.sha256(seed.encode()).hexdigest().upper()
-    # Use a base32-friendly alphabet (no confusing 0/O, 1/I)
-    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-    out = ""
-    n = int(h[:16], 16)
-    while len(out) < 6:
-        out += alphabet[n % len(alphabet)]
-        n //= len(alphabet)
-    return out
 
 
 def _select_picks(picks: List) -> List:
@@ -96,7 +86,7 @@ def _select_picks(picks: List) -> List:
     return selected
 
 
-def build_slip(date_str: str, all_picks: List, sportybet_url: str = "https://www.sportybet.com/ng/") -> CombinedSlip | None:
+def build_slip(date_str: str, all_picks: List, sportybet_url: str = "https://www.sportybet.com/ng/", manual_code: str = "") -> CombinedSlip | None:
     if not all_picks:
         return None
     picks = _select_picks(all_picks)
@@ -147,7 +137,7 @@ def build_slip(date_str: str, all_picks: List, sportybet_url: str = "https://www
         combined_confidence=round(confidence_avg, 1),
         expected_value=round(expected_value, 4),
         risk_level=risk,
-        sportybet_code=make_sportybet_code(date_str, picks),
+        sportybet_code=(manual_code or "").strip().upper(),
         sportybet_url=sportybet_url,
         summary=summary, locked=False,
     )
