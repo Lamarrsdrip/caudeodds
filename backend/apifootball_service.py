@@ -279,6 +279,70 @@ async def get_head_to_head(db, home_team_id: int, away_team_id: int, last_n: int
 
 # ---------- top-level: enrich a fixture ----------
 
+async def preflight_check() -> Dict:
+    """Test API-Football connectivity + verify current-season access.
+
+    Returns: {ok, plan_seasons_ok, current_season_supported, requests_remaining,
+              key_configured, sample_team, error}
+    """
+    out = {
+        "ok": False,
+        "key_configured": is_configured(),
+        "current_season": SEASON,
+        "current_season_supported": False,
+        "requests": None,
+        "limit_day": None,
+        "sample_team": None,
+        "error": None,
+    }
+    if not is_configured():
+        out["error"] = "No API key set. Paste the key in Admin → Configuration → API-Football."
+        return out
+    # Step 1: status — verifies key is valid & shows quota
+    try:
+        body = await _get("/status", params=None)
+    except APIFootballError as e:
+        msg = str(e)
+        if "suspended" in msg.lower():
+            out["error"] = (
+                "Your API-Football account is SUSPENDED. Log into "
+                "https://dashboard.api-football.com to see the reason "
+                "(usually quota abuse on free tier). Often resolved by "
+                "upgrading to Pro $19/mo or contacting their support."
+            )
+        elif "quota" in msg.lower() or "429" in msg:
+            out["error"] = "Daily quota exhausted. Free tier = 100/day; resets midnight UTC."
+        else:
+            out["error"] = f"Key rejected by API-Football: {msg}"
+        return out
+    resp = body.get("response") or {}
+    requests = resp.get("requests") or {}
+    out["requests"] = requests.get("current")
+    out["limit_day"] = requests.get("limit_day")
+    # Step 2: try the current-season teams endpoint to confirm plan supports it
+    try:
+        body = await _get("/teams", params={"league": 39, "season": SEASON})
+        teams = body.get("response", []) or []
+        if teams:
+            out["current_season_supported"] = True
+            sample = (teams[0].get("team") or {}).get("name")
+            out["sample_team"] = sample
+            out["ok"] = True
+        else:
+            out["error"] = f"API returned 0 teams for Premier League season {SEASON} — unusual; double-check your plan."
+    except APIFootballError as e:
+        msg = str(e)
+        if "plan" in msg.lower() or "season" in msg.lower():
+            out["error"] = (
+                f"Your plan does NOT include season {SEASON}. "
+                f"This is the Free-tier restriction (it only allows 2022-2024). "
+                f"Upgrade to Pro $19/mo at api-football.com/pricing to access live data."
+            )
+        else:
+            out["error"] = f"Could not verify current season: {e}"
+    return out
+
+
 async def enrich_fixture(db, sport: str, league_name: str, home: str, away: str) -> Dict:
     """Returns {home_form, away_form, home_injuries, away_injuries, h2h, data_richness}.
 

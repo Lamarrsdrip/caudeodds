@@ -57,6 +57,8 @@ const SECTIONS = [
 export default function AdminConfig() {
   const [cfg, setCfg] = useState(null);
   const [pushBusy, setPushBusy] = useState(false);
+  const [afBusy, setAfBusy] = useState(false);
+  const [afResult, setAfResult] = useState(null);
 
   useEffect(() => { api.adminConfig().then(setCfg); }, []);
 
@@ -73,6 +75,17 @@ export default function AdminConfig() {
       toast.success(`Sent to ${r.sent}/${r.total} subscribers · invalid: ${r.invalid} · failed: ${r.failed}`);
     } catch (e) { toast.error(formatApiError(e)); }
     finally { setPushBusy(false); }
+  };
+
+  const runPreflight = async () => {
+    setAfBusy(true); setAfResult(null);
+    try {
+      const r = await api.adminApifootballPreflight();
+      setAfResult(r);
+      if (r.ok) toast.success(`API-Football OK · ${r.sample_team} · ${r.requests}/${r.limit_day} used today`);
+      else toast.error(r.error || "Pre-flight failed");
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setAfBusy(false); }
   };
 
   if (!cfg) return null;
@@ -117,6 +130,28 @@ export default function AdminConfig() {
                     className="border border-[#262626] hover:bg-[#1a1a1a] font-mono text-[11px] uppercase tracking-widest px-4 py-2 disabled:opacity-50">
               {pushBusy ? "Sending…" : "Send Test Push to All Subscribers"}
             </button>
+          )}
+          {sec.key === "apifootball" && (
+            <div className="space-y-3">
+              <button onClick={runPreflight} disabled={afBusy} data-testid="apifootball-preflight-btn"
+                      className="bg-[#00ff66] text-[#050505] hover:bg-[#f5f5f5] font-mono text-[11px] uppercase tracking-widest px-4 py-2 disabled:opacity-50">
+                {afBusy ? "Checking…" : "Run Pre-flight Check"}
+              </button>
+              {afResult && (
+                <div data-testid="apifootball-preflight-result" className={`p-4 border-l-4 ${afResult.ok ? "border-l-[#00ff66] bg-[#00ff66]/5" : "border-l-[#ff6b35] bg-[#ff6b35]/5"}`}>
+                  <div className="font-heading font-bold text-sm mb-1">
+                    {afResult.ok ? "✓ Live data wired in" : "✗ Cannot use this key for live predictions"}
+                  </div>
+                  <div className="font-mono text-[11px] text-[#a3a3a3] space-y-0.5">
+                    <div>Key configured: {String(afResult.key_configured)}</div>
+                    <div>Current season ({afResult.current_season}): {afResult.current_season_supported ? "✓ supported by your plan" : "✗ NOT in your plan"}</div>
+                    {afResult.sample_team && <div>Sample team verified: {afResult.sample_team}</div>}
+                    {afResult.requests !== null && <div>API quota today: {afResult.requests} / {afResult.limit_day}</div>}
+                    {afResult.error && <div className="text-[#ff6b35] mt-2 leading-relaxed">{afResult.error}</div>}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       ))}

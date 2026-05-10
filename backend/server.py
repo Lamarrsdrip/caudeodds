@@ -390,6 +390,14 @@ async def admin_push_test(payload: dict, _: dict = Depends(admin_required)):
     return res
 
 
+@api.get("/admin/apifootball/preflight")
+async def admin_apifootball_preflight(_: dict = Depends(admin_required)):
+    """Verify the API-Football key works for the CURRENT season before relying
+    on it for live predictions. Returns a structured status the UI can render."""
+    from apifootball_service import preflight_check
+    return await preflight_check()
+
+
 @api.post("/slip/generate")
 async def slip_generate(force: bool = False, _: dict = Depends(admin_required)):
     """Admin-triggered generation. Returns immediately with a job_id; the actual
