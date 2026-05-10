@@ -87,6 +87,9 @@ async def on_startup():
     await users_col.create_index("id", unique=True)
     await pay_col.create_index("user_id")
     await pay_col.create_index("status")
+    await picks_col.create_index("date")
+    await picks_col.create_index([("date", -1), ("created_at", -1)])
+    await rej_col.create_index("date")
     await seed_admin(db)
     logger.info("CLAUDEODD startup complete")
 
@@ -554,6 +557,12 @@ app.include_router(api)
 
 app.add_middleware(
     CORSMiddleware,
+    allow_credentials=False,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+Middleware,
     allow_credentials=False,
     allow_origins=["*"],
     allow_methods=["*"],
