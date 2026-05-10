@@ -19,8 +19,8 @@ def today_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-async def run_pipeline(date_str: str, settings: Settings) -> Tuple[List[Pick], List[RejectionLog], int]:
-    fixtures = await generate_fixtures_for_date_async(date_str)
+async def run_pipeline(date_str: str, settings: Settings, db=None) -> Tuple[List[Pick], List[RejectionLog], int]:
+    fixtures = await generate_fixtures_for_date_async(date_str, db=db)
     if settings.sport_filter != "all":
         fixtures = [f for f in fixtures if f.sport == settings.sport_filter]
     total_fixtures = len(fixtures)

@@ -120,6 +120,9 @@ class AdminConfig(BaseModel):
     odds_api_provider: str = "the_odds_api"
     odds_api_base_url: str = "https://api.the-odds-api.com/v4"
     odds_api_key: str = ""  # if blank, server uses THE_ODDS_API_KEY from .env
+    # API-Football enrichment (real injuries / form / xG)
+    apifootball_key: str = ""  # if blank, server uses APIFOOTBALL_KEY from .env
+    apifootball_base_url: str = "https://v3.football.api-sports.io"
     # Daily cron
     cron_enabled: bool = True
     cron_hour_utc: int = Field(default=8, ge=0, le=23)  # 08:00 UTC = 09:00 Lagos
@@ -144,6 +147,7 @@ class SlipLeg(BaseModel):
     edge_pct: float
     expected_value: float = 0.0  # calibrated, per-leg
     book_implied_prob: float = 0.0  # 1/odds, exposed for transparency
+    data_richness: float = 0.0  # 0-1: how much real intel (injuries/form/h2h) we had
     kickoff: str = ""  # ISO datetime
     reasoning: str
 

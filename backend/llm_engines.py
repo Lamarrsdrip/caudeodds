@@ -161,13 +161,19 @@ def _strip_json(s: str) -> str:
 
 def _fixture_payload(fx: Fixture) -> dict:
     """Build the LLM payload, omitting fields the bookmaker feed doesn't supply
-    so the agents focus on the market signal that IS present."""
+    so the agents focus on the market signal that IS present.
+    
+    When API-Football enrichment is available (af_*), include real injuries,
+    last-5 form, and head-to-head — these are the signals that actually move
+    win probability beyond the book's pricing.
+    """
     base = {
         "sport": fx.sport, "league": fx.league,
         "match": f"{fx.home} vs {fx.away}", "kickoff": fx.kickoff,
         "odds": fx.odds, "line_movement": fx.line_movement,
         "sharp_money_pct": fx.sharp_money_pct, "public_money_pct": fx.public_money_pct,
         "liquidity_score": fx.liquidity_score, "volatility": fx.volatility,
+        "data_richness": fx.data_richness,
     }
     optional = {
         "injuries": fx.injuries, "xg": fx.xg, "pace": fx.pace,
@@ -181,6 +187,17 @@ def _fixture_payload(fx: Fixture) -> dict:
         if isinstance(v, list) and not v:
             continue
         base[k] = v
+    # API-Football enrichment (real intel, when available)
+    if fx.af_home_form:
+        base["home_recent_form"] = fx.af_home_form
+    if fx.af_away_form:
+        base["away_recent_form"] = fx.af_away_form
+    if fx.af_home_injuries:
+        base["home_injuries"] = fx.af_home_injuries
+    if fx.af_away_injuries:
+        base["away_injuries"] = fx.af_away_injuries
+    if fx.af_h2h:
+        base["head_to_head"] = fx.af_h2h
     return base
 
 

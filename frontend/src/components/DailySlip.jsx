@@ -58,9 +58,28 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
   const evColor = slip.expected_value > 0 ? "text-[#00ff66]" : "text-[#ff3333]";
   const riskTag = slip.risk_level === "LOW" ? "co-tag-pos" : slip.risk_level === "HIGH" ? "co-tag-neg" : "co-tag-warn";
   const codeReady = !!slip.sportybet_code && slip.sportybet_code !== "LOCKED";
+  // Average data_richness across legs — drives the data-quality badge
+  const avgRichness = slip.legs && slip.legs.length
+    ? slip.legs.reduce((s, l) => s + (l.data_richness || 0), 0) / slip.legs.length
+    : 0;
+  const dataBadge = avgRichness >= 0.7
+    ? { label: "Full Intel", cls: "bg-[#00ff66] text-[#050505]", note: "Real injuries, form & H2H wired in." }
+    : avgRichness >= 0.4
+      ? { label: "Partial Intel", cls: "bg-[#ffb800] text-[#050505]", note: "Some real form/injuries data — bet smaller." }
+      : { label: "Market-Data Only", cls: "bg-[#ff6b35] text-white", note: "Only bookmaker prices were available — no injury/form data. Treat as informational, not professional tipping." };
 
   return (
     <div className="space-y-4 sm:space-y-5" data-testid="daily-slip">
+      {/* Data-quality badge — hidden when locked */}
+      {!locked && (
+        <div className="co-card p-3 sm:p-4 flex items-center gap-3" data-testid="data-quality-badge">
+          <span className={`px-3 py-1 font-mono text-[10px] uppercase tracking-widest font-bold ${dataBadge.cls}`}>
+            {dataBadge.label}
+          </span>
+          <span className="text-xs text-[#a3a3a3] leading-snug">{dataBadge.note}</span>
+        </div>
+      )}
+
       {/* KPI strip — 2 cols on mobile, 5 on desktop */}
       <div className="grid grid-cols-2 sm:grid-cols-5 border border-[#262626]" data-testid="slip-kpis">
         {[

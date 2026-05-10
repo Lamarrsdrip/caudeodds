@@ -255,14 +255,24 @@ def _features_from_books(bookmakers: List[Dict], home_team: str, away_team: str)
             if bk_key in sharp_books and h_p and a_p:
                 sharp_count += 1
 
+    # ============================================================
+    # MARKET-DERIVED FEATURES (price-only, no fake signals)
+    # ------------------------------------------------------------
+    # Without API-Football injury/form data, we DO NOT synthesise sharp/public
+    # splits — that creates systematic away-bias hallucinations. Instead we
+    # default to 50/50 and let the AI work only off real book dispersion.
+    #
+    # If actual sharp books exist in the bookmaker list AND their prices
+    # diverge from the wider market median by >3%, only THEN do we surface
+    # a directional sharp signal.
+    # ============================================================
     n_books = max(len({bk.get("key") for bk in bookmakers}), 1)
     home_med = statistics.median(home_prices) if home_prices else 2.0
     home_std = statistics.pstdev(home_prices) if len(home_prices) > 1 else 0.05
 
-    # sharp_money_pct: if sharp books exist, lean their direction; else neutral
-    if sharp_count and home_prices:
-        # Find sharp books explicitly
-        sharp_home_pct = 50
+    sharp_home = 50  # neutral default
+    sharp_signal_strength = 0
+    if home_prices:
         for bk in bookmakers:
             if bk.get("key") not in sharp_books:
                 continue
@@ -271,17 +281,24 @@ def _features_from_books(bookmakers: List[Dict], home_team: str, away_team: str)
                     continue
                 for o in mk.get("outcomes", []):
                     if o.get("name") == home_team and isinstance(o.get("price"), (int, float)):
-                        # Sharp shorter than median → +sharp on home
-                        diff = (home_med - float(o["price"])) / home_med
-                        sharp_home_pct = max(20, min(80, 50 + int(diff * 200)))
-        sharp_home = sharp_home_pct
-    else:
-        sharp_home = 50
+                        sharp_price = float(o["price"])
+                        # >3% divergence between sharp and market median is a real signal
+                        diff_pct = (home_med - sharp_price) / home_med
+                        if abs(diff_pct) > 0.03:
+                            # Sharp shorter on home → sharp likes home (sharp_home > 50)
+                            sharp_home = max(35, min(65, 50 + int(diff_pct * 100)))
+                            sharp_signal_strength = abs(diff_pct)
+        # Without a real sharp divergence, stay neutral (50)
 
-    # Public money proxies: stronger favourites attract more public money,
-    # but cap below the 85% trap threshold so we don't auto-reject.
-    home_imp = 1.0 / max(home_med, 1.01)
-    public_home = max(20, min(80, int(home_imp * 110)))
+    # Public money: ONLY surface if sharp signal is also present, else neutral.
+    # This kills the away-bias bug (where public_home was set purely from
+    # implied probability with no real public-money data).
+    public_home = 50
+    if sharp_signal_strength > 0:
+        # Public typically follows the favourite — the longer-priced side has
+        # less public money. Cap range to avoid extremes.
+        home_imp = 1.0 / max(home_med, 1.01)
+        public_home = max(40, min(60, int(home_imp * 100)))
 
     return {
         "line_movement": {

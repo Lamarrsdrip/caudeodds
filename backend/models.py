@@ -35,6 +35,13 @@ class Fixture(BaseModel):
     travel_fatigue: Optional[dict] = None
     referee_tendency: Optional[str] = None
     weather: Optional[str] = None
+    # Real-data enrichment from API-Football (optional)
+    af_home_form: Optional[dict] = None  # {wins,draws,losses,goals_for,goals_against,ppg,form_string}
+    af_away_form: Optional[dict] = None
+    af_home_injuries: Optional[List[dict]] = None  # [{player, type, reason}]
+    af_away_injuries: Optional[List[dict]] = None
+    af_h2h: Optional[dict] = None
+    data_richness: float = 0.0  # 0-1 score of how much real intel we have
 
 
 class QuantOutput(BaseModel):
@@ -83,6 +90,7 @@ class Pick(BaseModel):
     reasoning: str
     quant_view: QuantOutput
     reasoning_view: ReasoningOutput
+    data_richness: float = 0.0
     status: Literal["pending", "won", "lost", "void"] = "pending"
     settled_at: Optional[str] = None
     created_at: str = Field(default_factory=utcnow_iso)

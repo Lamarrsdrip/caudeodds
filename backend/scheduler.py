@@ -46,7 +46,7 @@ async def _run_daily_pipeline(db):
     try:
         settings_doc = await db.claudeodd_settings.find_one({"_id": "main"}, {"_id": 0})
         settings = Settings(**settings_doc) if settings_doc else Settings()
-        picks, rejections, total = await run_pipeline(date_str, settings)
+        picks, rejections, total = await run_pipeline(date_str, settings, db=db)
         if picks:
             await db.claudeodd_picks.insert_many([p.model_dump() for p in picks])
         if rejections:

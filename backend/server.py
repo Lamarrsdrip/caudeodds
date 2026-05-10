@@ -98,10 +98,15 @@ async def on_startup():
     await seed_admin(db)
     # Sync admin config into runtime caches (odds API key/url) and start cron
     cfg = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
-    from odds_api_service import set_runtime_config
-    set_runtime_config(
+    from odds_api_service import set_runtime_config as set_odds_runtime
+    from apifootball_service import set_runtime_config as set_af_runtime
+    set_odds_runtime(
         odds_api_key=cfg.get("odds_api_key", ""),
         odds_api_base_url=cfg.get("odds_api_base_url", ""),
+    )
+    set_af_runtime(
+        apifootball_key=cfg.get("apifootball_key", ""),
+        apifootball_base_url=cfg.get("apifootball_base_url", ""),
     )
     from scheduler import configure_scheduler
     sched_status = await configure_scheduler(db)
@@ -414,7 +419,7 @@ async def slip_generate(force: bool = False, _: dict = Depends(admin_required)):
         try:
             settings_doc = await settings_col.find_one({"_id": "main"}, {"_id": 0})
             settings = Settings(**settings_doc) if settings_doc else Settings()
-            picks, rejections, total = await run_pipeline(date_str, settings)
+            picks, rejections, total = await run_pipeline(date_str, settings, db=db)
             if force:
                 await picks_col.delete_many({"date": date_str})
                 await rej_col.delete_many({"date": date_str})
@@ -662,6 +667,8 @@ async def admin_get_config(_: dict = Depends(admin_required)):
         cfg.telegram_bot_token = "****" + cfg.telegram_bot_token[-4:]
     if cfg.odds_api_key:
         cfg.odds_api_key = "****" + cfg.odds_api_key[-4:]
+    if cfg.apifootball_key:
+        cfg.apifootball_key = "****" + cfg.apifootball_key[-4:]
     return cfg
 
 
@@ -671,16 +678,21 @@ async def admin_set_config(cfg: AdminConfig, _: dict = Depends(admin_required)):
     # Don't persist masked placeholders — re-load existing values for any field still masked
     existing = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
     payload = cfg.model_dump()
-    for secret_field in ["flw_secret_key", "flw_encryption_key", "flw_webhook_secret", "smtp_password", "telegram_bot_token", "odds_api_key"]:
+    for secret_field in ["flw_secret_key", "flw_encryption_key", "flw_webhook_secret", "smtp_password", "telegram_bot_token", "odds_api_key", "apifootball_key"]:
         v = payload.get(secret_field, "")
         if v and (v.startswith("****") or v == "********"):
             payload[secret_field] = existing.get(secret_field, "")
     await admin_cfg_col.update_one({"_id": "main"}, {"$set": payload}, upsert=True)
     # Re-sync runtime config and reschedule cron
-    from odds_api_service import set_runtime_config
-    set_runtime_config(
+    from odds_api_service import set_runtime_config as set_odds_runtime
+    from apifootball_service import set_runtime_config as set_af_runtime
+    set_odds_runtime(
         odds_api_key=payload.get("odds_api_key", ""),
         odds_api_base_url=payload.get("odds_api_base_url", ""),
+    )
+    set_af_runtime(
+        apifootball_key=payload.get("apifootball_key", ""),
+        apifootball_base_url=payload.get("apifootball_base_url", ""),
     )
     from scheduler import configure_scheduler
     await configure_scheduler(db)

@@ -1,0 +1,328 @@
+"""API-Football enrichment service — fetches REAL injuries, team form, head-to-head.
+
+This is the data that actually moves win probability. Without it, our AI was
+finding "edge" in noise (price-only sharp/public synthetic features).
+
+Free tier: 100 req/day — careful budget. Pro tier ($19/mo): 7,500/day.
+
+Storage:
+  db.apifootball_team_map  — {odds_team_name, league_key, team_id, fuzzy_score}
+  db.apifootball_cache     — {key, payload, created_at}  (12h TTL on form/H2H, 2h on injuries)
+
+Admin can override the API key + base URL via /admin/config (apifootball_key,
+apifootball_base_url). Falls back to APIFOOTBALL_KEY env var.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import time
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Tuple
+
+import httpx
+from rapidfuzz import fuzz
+
+logger = logging.getLogger("claudeodd.apifootball")
+
+DEFAULT_BASE_URL = "https://v3.football.api-sports.io"
+# 2025/26 European football season. Free tier only supports 2022-2024 — for
+# live predictions you NEED the Pro plan ($19/mo) on the current season.
+SEASON = int(os.environ.get("APIFOOTBALL_SEASON", "2025"))
+
+# Maps Odds-API league display name → API-Football league_id (api-sports.io)
+LEAGUE_MAP = {
+    "Premier League": 39,        # England
+    "La Liga": 140,              # Spain
+    "Serie A": 135,              # Italy
+    "Bundesliga": 78,            # Germany
+    "Ligue 1": 61,               # France
+    "Champions League": 2,       # UEFA
+    "Europa League": 3,          # UEFA
+}
+
+_runtime: Dict[str, str] = {"key": "", "base_url": ""}
+
+
+def set_runtime_config(apifootball_key: str = "", apifootball_base_url: str = "") -> None:
+    if apifootball_key is not None:
+        _runtime["key"] = (apifootball_key or "").strip()
+    if apifootball_base_url is not None:
+        _runtime["base_url"] = (apifootball_base_url or "").strip()
+
+
+def _key() -> Optional[str]:
+    k = (_runtime.get("key") or os.environ.get("APIFOOTBALL_KEY", "")).strip()
+    return k or None
+
+
+def _base() -> str:
+    return (_runtime.get("base_url") or DEFAULT_BASE_URL).rstrip("/")
+
+
+def is_configured() -> bool:
+    return bool(_key())
+
+
+# ---------- low-level HTTP ----------
+
+class APIFootballError(Exception):
+    pass
+
+
+async def _get(path: str, params: Optional[Dict] = None) -> Dict:
+    k = _key()
+    if not k:
+        raise APIFootballError("APIFOOTBALL_KEY not configured")
+    headers = {"x-apisports-key": k}
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.get(f"{_base()}{path}", params=params or {}, headers=headers)
+    if r.status_code == 429:
+        raise APIFootballError("API-Football daily quota exhausted (429)")
+    if r.status_code >= 400:
+        raise APIFootballError(f"API-Football {r.status_code}: {r.text[:200]}")
+    body = r.json() or {}
+    if body.get("errors"):
+        errs = body["errors"]
+        if isinstance(errs, dict) and errs:
+            # 'plan' / 'access' errors typically mean free-tier season restriction —
+            # raise so the caller can decide to skip enrichment for this fixture
+            # rather than crashing the whole pipeline.
+            raise APIFootballError(f"API-Football plan/access error: {errs}")
+        if isinstance(errs, list) and errs:
+            raise APIFootballError(f"API-Football errors: {errs}")
+    return body
+
+
+# ---------- caching helpers ----------
+
+async def _cache_get(db, key: str, max_age_seconds: int) -> Optional[dict]:
+    doc = await db.apifootball_cache.find_one({"_id": key}, {"_id": 0})
+    if not doc:
+        return None
+    age = time.time() - doc.get("ts", 0)
+    if age > max_age_seconds:
+        return None
+    return doc.get("payload")
+
+
+async def _cache_put(db, key: str, payload: dict) -> None:
+    await db.apifootball_cache.update_one(
+        {"_id": key}, {"$set": {"ts": time.time(), "payload": payload}}, upsert=True
+    )
+
+
+# ---------- team resolution ----------
+
+async def _all_teams_for_league(db, league_id: int) -> List[Dict]:
+    cache_key = f"teams_{league_id}_{SEASON}"
+    cached = await _cache_get(db, cache_key, max_age_seconds=7 * 24 * 3600)
+    if cached:
+        return cached
+    try:
+        body = await _get("/teams", params={"league": league_id, "season": SEASON})
+    except APIFootballError as e:
+        logger.warning("Cannot fetch teams for league %d season %d: %s", league_id, SEASON, e)
+        # Cache the empty result for 1h so we don't hammer the API on every fixture
+        await _cache_put(db, cache_key, [])
+        return []
+    teams = [item.get("team") or {} for item in body.get("response", []) if item.get("team")]
+    await _cache_put(db, cache_key, teams)
+    return teams
+
+
+async def resolve_team_id(db, odds_team_name: str, league_name: str, threshold: int = 78) -> Optional[int]:
+    """Map an Odds API team name to an API-Football team_id, with fuzzy matching."""
+    league_id = LEAGUE_MAP.get(league_name)
+    if not league_id:
+        return None
+
+    map_key = f"{odds_team_name}|{league_name}"
+    cached = await db.apifootball_team_map.find_one({"_id": map_key}, {"_id": 0})
+    if cached:
+        return cached.get("team_id")
+
+    teams = await _all_teams_for_league(db, league_id)
+    if not teams:
+        return None
+
+    target = odds_team_name.lower().strip()
+    best_team = None
+    best_score = 0
+    for t in teams:
+        nm = (t.get("name") or "").lower()
+        score = max(fuzz.token_set_ratio(target, nm), fuzz.partial_ratio(target, nm))
+        if score > best_score:
+            best_score = score
+            best_team = t
+
+    if best_team and best_score >= threshold:
+        await db.apifootball_team_map.update_one(
+            {"_id": map_key},
+            {"$set": {
+                "odds_team_name": odds_team_name,
+                "league_name": league_name,
+                "league_id": league_id,
+                "team_id": best_team["id"],
+                "team_name": best_team["name"],
+                "fuzzy_score": best_score,
+                "resolved_at": datetime.now(timezone.utc).isoformat(),
+            }}, upsert=True,
+        )
+        return best_team["id"]
+    logger.warning("Could not resolve team %r in %s (best=%s @ %d)",
+                   odds_team_name, league_name, (best_team or {}).get("name"), best_score)
+    return None
+
+
+# ---------- enrichment endpoints ----------
+
+async def get_team_form(db, team_id: int, league_id: int, last_n: int = 5) -> Optional[Dict]:
+    cache_key = f"form_{team_id}_{league_id}_{last_n}"
+    cached = await _cache_get(db, cache_key, max_age_seconds=12 * 3600)
+    if cached is not None:
+        return cached
+    try:
+        body = await _get("/fixtures", params={"team": team_id, "league": league_id,
+                                               "season": SEASON, "last": last_n})
+    except APIFootballError as e:
+        logger.warning("get_team_form failed: %s", e)
+        return None
+    fixtures = body.get("response", []) or []
+    wins = draws = losses = gf = ga = 0
+    last_results: List[str] = []  # 'W' / 'D' / 'L'
+    for fx in fixtures:
+        teams = fx.get("teams") or {}
+        goals = fx.get("goals") or {}
+        is_home = (teams.get("home") or {}).get("id") == team_id
+        my_g = goals.get("home") if is_home else goals.get("away")
+        their_g = goals.get("away") if is_home else goals.get("home")
+        if my_g is None or their_g is None:
+            continue
+        gf += int(my_g); ga += int(their_g)
+        if my_g > their_g: wins += 1; last_results.append("W")
+        elif my_g == their_g: draws += 1; last_results.append("D")
+        else: losses += 1; last_results.append("L")
+    n = max(wins + draws + losses, 1)
+    out = {
+        "matches": wins + draws + losses,
+        "wins": wins, "draws": draws, "losses": losses,
+        "goals_for": gf, "goals_against": ga,
+        "goal_diff": gf - ga,
+        "ppg": round((wins * 3 + draws) / n, 2),
+        "form_string": "".join(last_results) or "—",
+    }
+    await _cache_put(db, cache_key, out)
+    return out
+
+
+async def get_team_injuries(db, team_id: int, league_id: int) -> List[Dict]:
+    cache_key = f"injuries_{team_id}_{league_id}"
+    cached = await _cache_get(db, cache_key, max_age_seconds=2 * 3600)
+    if cached is not None:
+        return cached
+    try:
+        body = await _get("/injuries", params={"team": team_id, "league": league_id, "season": SEASON})
+    except APIFootballError as e:
+        logger.warning("get_team_injuries failed: %s", e)
+        return []
+    out: List[Dict] = []
+    for item in body.get("response", []) or []:
+        player = item.get("player") or {}
+        out.append({
+            "player": player.get("name") or "Unknown",
+            "type": (player.get("type") or "").strip(),  # 'Missing Fixture' / 'Questionable'
+            "reason": (player.get("reason") or "").strip(),
+        })
+    await _cache_put(db, cache_key, out)
+    return out
+
+
+async def get_head_to_head(db, home_team_id: int, away_team_id: int, last_n: int = 5) -> Optional[Dict]:
+    a, b = sorted([home_team_id, away_team_id])  # cache symmetrically
+    cache_key = f"h2h_{a}_{b}_{last_n}"
+    cached = await _cache_get(db, cache_key, max_age_seconds=24 * 3600)
+    if cached is not None:
+        return cached
+    try:
+        body = await _get("/fixtures/headtohead",
+                          params={"h2h": f"{home_team_id}-{away_team_id}", "last": last_n})
+    except APIFootballError as e:
+        logger.warning("get_head_to_head failed: %s", e)
+        return None
+    fixtures = body.get("response", []) or []
+    home_wins = away_wins = draws = 0
+    for fx in fixtures:
+        goals = fx.get("goals") or {}
+        teams = fx.get("teams") or {}
+        h_id = (teams.get("home") or {}).get("id")
+        gh = goals.get("home"); ga = goals.get("away")
+        if gh is None or ga is None:
+            continue
+        if gh == ga:
+            draws += 1
+        elif (gh > ga) and h_id == home_team_id:
+            home_wins += 1
+        elif (gh > ga) and h_id == away_team_id:
+            away_wins += 1
+        elif (ga > gh) and h_id == home_team_id:
+            away_wins += 1
+        elif (ga > gh) and h_id == away_team_id:
+            home_wins += 1
+    out = {
+        "matches": home_wins + away_wins + draws,
+        "home_wins": home_wins, "away_wins": away_wins, "draws": draws,
+    }
+    await _cache_put(db, cache_key, out)
+    return out
+
+
+# ---------- top-level: enrich a fixture ----------
+
+async def enrich_fixture(db, sport: str, league_name: str, home: str, away: str) -> Dict:
+    """Returns {home_form, away_form, home_injuries, away_injuries, h2h, data_richness}.
+
+    `data_richness` is a 0-1 score of how much real intel we have for this fixture.
+    Used downstream to widen/tighten the AI's allowed probability shift.
+    """
+    out = {
+        "home_form": None, "away_form": None,
+        "home_injuries": [], "away_injuries": [],
+        "h2h": None,
+        "data_richness": 0.0,
+        "configured": is_configured(),
+    }
+    if sport != "football" or not is_configured():
+        return out
+    league_id = LEAGUE_MAP.get(league_name)
+    if not league_id:
+        return out
+
+    home_id = await resolve_team_id(db, home, league_name)
+    away_id = await resolve_team_id(db, away, league_name)
+    if not home_id or not away_id:
+        return out
+
+    home_form = await get_team_form(db, home_id, league_id)
+    away_form = await get_team_form(db, away_id, league_id)
+    home_inj = await get_team_injuries(db, home_id, league_id)
+    away_inj = await get_team_injuries(db, away_id, league_id)
+    h2h = await get_head_to_head(db, home_id, away_id)
+
+    richness = 0.0
+    if home_form and home_form.get("matches", 0) >= 3:
+        richness += 0.30
+    if away_form and away_form.get("matches", 0) >= 3:
+        richness += 0.30
+    if home_inj is not None and away_inj is not None:
+        richness += 0.20
+    if h2h and h2h.get("matches", 0) >= 2:
+        richness += 0.20
+
+    out.update({
+        "home_form": home_form, "away_form": away_form,
+        "home_injuries": home_inj, "away_injuries": away_inj,
+        "h2h": h2h,
+        "data_richness": round(min(1.0, richness), 2),
+    })
+    return out

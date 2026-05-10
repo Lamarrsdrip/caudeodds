@@ -111,6 +111,7 @@ def build_slip(date_str: str, all_picks: List, sportybet_url: str = "https://www
             sport=p.sport, market=p.market, selection_label=p.selection_label,
             odds=p.odds, confidence=p.confidence, edge_pct=p.edge_pct,
             expected_value=leg_ev, book_implied_prob=book_imp,
+            data_richness=getattr(p, "data_richness", 0.0) or 0.0,
             kickoff=p.kickoff, reasoning=(p.reasoning or "")[:240],
         ))
         combined_odds *= float(p.odds)

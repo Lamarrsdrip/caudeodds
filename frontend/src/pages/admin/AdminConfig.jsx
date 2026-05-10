@@ -15,6 +15,10 @@ const SECTIONS = [
     ["odds_api_base_url", "API Base URL"],
     ["odds_api_key", "API Key", "password"],
   ], hint: "Leave key blank to use the THE_ODDS_API_KEY from backend/.env. Saving here overrides the env."},
+  { key: "apifootball", title: "API-Football (real injuries / form / xG)", fields: [
+    ["apifootball_base_url", "API Base URL"],
+    ["apifootball_key", "API Key", "password"],
+  ], hint: "Free tier: 100 req/day (≈1 pipeline run). Pro $19/mo: 7,500/day. Get key at api-football.com. When configured, AI is allowed up to ±6% probability shift; without it, only ±2% (very few picks)."},
   { key: "cron", title: "Daily Auto-Generate (Cron)", fields: [
     ["cron_enabled", "Enabled", "bool"],
     ["cron_hour_utc", "Hour (UTC, 0-23)", "number"],

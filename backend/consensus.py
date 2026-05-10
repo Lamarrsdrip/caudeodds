@@ -171,18 +171,23 @@ def evaluate(
     # micro-edge), not a re-pricing of the entire match. We therefore cap
     # how far the AI's fair_prob may diverge from the bookmaker median.
     #
-    # Empirical bound from sports-betting research: even a strong sharp
-    # divergence with low volatility rarely justifies more than a 5-7%
-    # absolute probability shift. We allow up to MAX_PROB_SHIFT then clamp.
+    # The cap is GATED ON DATA RICHNESS:
+    #   - <0.4 (price-only): max 2% probability shift  (cannot beat market)
+    #   - 0.4-0.7 (form/injuries available): max 4% shift
+    #   - >0.7 (full intel + strong sharp signal): max 6% shift
     # ============================================================
-    book_implied = round(1.0 / odds, 4)  # use real book-derived implied prob, not LLM's claim
+    book_implied = round(1.0 / odds, 4)
+    richness = float(getattr(fx, "data_richness", 0.0) or 0.0)
 
-    # Base shift budget: 4% absolute prob shift
-    MAX_PROB_SHIFT = 0.04
-    # Up to +3% extra if the market signal is genuinely strong:
-    #   - sharp/public divergence > 15ppt in our direction
-    #   - low volatility (<0.25)
-    #   - high liquidity (>0.6)
+    if richness < 0.4:
+        MAX_PROB_SHIFT = 0.02  # price-only — we have no real edge here
+    elif richness < 0.7:
+        MAX_PROB_SHIFT = 0.04
+    else:
+        MAX_PROB_SHIFT = 0.06
+
+    # Strong sharp-book divergence widens the budget by 1pp (only if we already
+    # have intel — never on price-only matches)
     sharp_pct = fx.sharp_money_pct or {}
     side = quant_side
     sharp_for_side = 50
@@ -190,8 +195,8 @@ def evaluate(
         sharp_for_side = sharp_pct.get("home", sharp_pct.get("over", 50))
     elif side in ("AWAY", "UNDER", "BTTS_NO"):
         sharp_for_side = sharp_pct.get("away", sharp_pct.get("under", 50))
-    if sharp_for_side > 60 and (fx.volatility or 0.5) < 0.30 and (fx.liquidity_score or 0) > 0.55:
-        MAX_PROB_SHIFT += 0.03  # max 7% shift in strong-signal cases
+    if richness >= 0.4 and sharp_for_side > 60 and (fx.volatility or 0.5) < 0.30:
+        MAX_PROB_SHIFT += 0.01
 
     raw_fair_prob = float(quant.fair_prob)
     direction = 1 if raw_fair_prob > book_implied else -1
@@ -271,6 +276,7 @@ def evaluate(
         reasoning=f"{reasoning.reasoning} | Quant: {quant.rationale}",
         quant_view=quant,
         reasoning_view=reasoning,
+        data_richness=richness,
     )
     return pick, None
 
