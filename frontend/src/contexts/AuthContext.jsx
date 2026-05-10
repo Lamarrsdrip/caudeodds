@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
 import { api, tokenStore, formatApiError } from "@/lib/api";
 
 const AuthCtx = createContext(null);
@@ -42,16 +42,17 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    try { await api.logout(); } catch {}
+    try { await api.logout(); } catch (e) { /* logout best-effort, token cleared regardless */ }
     tokenStore.clear();
     setUser(null);
   };
 
-  return (
-    <AuthCtx.Provider value={{ user, loading, refresh, login, register, logout }}>
-      {children}
-    </AuthCtx.Provider>
+  const value = useMemo(
+    () => ({ user, loading, refresh, login, register, logout }),
+    [user, loading, refresh],
   );
+
+  return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
 
 export const useAuth = () => useContext(AuthCtx);

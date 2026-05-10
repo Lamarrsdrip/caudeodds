@@ -29,7 +29,9 @@ export default function PushOptIn({ vapidPublicKey, compact = false }) {
         const sub = await reg.pushManager.getSubscription();
         setSubscribed(!!sub);
       } catch (e) {
-        // SW failed to register (likely HTTP, blocked, or sandboxed iframe)
+        // SW failed to register (HTTP-only context, blocked, or sandboxed iframe).
+        // Surface to console so admins debugging push can spot the cause; UI just hides.
+        console.warn("Service worker registration failed:", e?.message || e);
       }
     })();
   }, []);

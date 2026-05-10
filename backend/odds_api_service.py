@@ -236,7 +236,6 @@ def _features_from_books(bookmakers: List[Dict], home_team: str, away_team: str)
     """
     home_prices, away_prices = [], []
     sharp_books = {"pinnacle", "betfair_ex_uk", "betfair_ex_eu", "matchbook", "smarkets"}
-    sharp_home_advantage = 0.0
     sharp_count = 0
     for bk in bookmakers:
         bk_key = bk.get("key", "")
@@ -254,12 +253,10 @@ def _features_from_books(bookmakers: List[Dict], home_team: str, away_team: str)
             if a_p:
                 away_prices.append(a_p)
             if bk_key in sharp_books and h_p and a_p:
-                # If sharp gives home shorter than market median → sharp likes home
                 sharp_count += 1
 
     n_books = max(len({bk.get("key") for bk in bookmakers}), 1)
     home_med = statistics.median(home_prices) if home_prices else 2.0
-    away_med = statistics.median(away_prices) if away_prices else 2.0
     home_std = statistics.pstdev(home_prices) if len(home_prices) > 1 else 0.05
 
     # sharp_money_pct: if sharp books exist, lean their direction; else neutral

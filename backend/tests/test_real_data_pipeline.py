@@ -28,8 +28,8 @@ if not BASE_URL:
             break
 
 API = f"{BASE_URL}/api"
-ADMIN_EMAIL = "admin@claudeodd.com"
-ADMIN_PASSWORD = "Admin@2026"
+ADMIN_EMAIL = os.environ.get("CLAUDEODD_TEST_ADMIN_EMAIL", "admin@claudeodd.com")
+ADMIN_PASSWORD = os.environ.get("CLAUDEODD_TEST_ADMIN_PASSWORD", "Admin@2026")
 
 # Heuristic — recognise common real-football/basketball clubs that the Odds API would surface.
 REAL_TEAM_TOKENS = {
@@ -239,7 +239,7 @@ class TestZBackgroundJob:
         try:
             r = s.post(f"{API}/slip/generate", params={"force": "true"}, headers=admin_h, timeout=15)
         except requests.exceptions.ReadTimeout:
-            pytest.fail(f"/slip/generate?force=true timed out (>15s) — fix regressed")
+            pytest.fail("/slip/generate?force=true timed out (>15s) — fix regressed")
         elapsed = time.time() - t0
         assert r.status_code == 200, f"{r.status_code} after {elapsed:.1f}s -> {r.text[:300]}"
         assert elapsed < 10, f"force /slip/generate took {elapsed:.1f}s — should be <5s"

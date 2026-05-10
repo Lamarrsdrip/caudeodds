@@ -47,7 +47,10 @@ export default function AdminPredictions() {
               setBusy(false);
               return;
             }
-          } catch (e) { /* keep polling */ }
+          } catch (e) {
+            // Polling error is recoverable — log for diagnostics, then keep polling
+            console.warn("Pipeline status poll failed (will retry):", e?.message || e);
+          }
         }
         toast.error("Generation timed out after 5 minutes — check backend logs.");
       }
