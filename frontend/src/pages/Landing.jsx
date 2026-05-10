@@ -21,17 +21,18 @@ export default function Landing() {
       <section className="relative bg-grid border-b border-[#262626]">
         <div className="max-w-[1400px] mx-auto px-6 py-24">
           <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mb-6">
-            // Multi-agent quant intelligence · Built for Nigeria · Powered by Claude + GPT
+            // Two AIs · One winning slip every day · Built for SportyBet Nigeria
           </div>
           <h1 className="font-heading font-black text-5xl sm:text-6xl lg:text-7xl tracking-tighter leading-none mb-8" data-testid="hero-title">
-            ONE SLIP.<br/>
-            <span className="text-[#00ff66]">TWO AIs.</span><br/>
-            DAILY EDGE.
+            WIN MORE.<br/>
+            <span className="text-[#00ff66]">BET SMARTER.</span><br/>
+            DAILY.
           </h1>
           <p className="text-lg text-[#a3a3a3] max-w-2xl leading-relaxed mb-10">
-            CLAUDEODD runs Claude Sonnet AI and GPT in parallel as a quant ensemble. Every day,
-            both models must agree on the same SportyBet-ready 2–5 leg combined slip. If they don't,
-            you get nothing. Discipline first — no forced bets.
+            ClaudeOdd combines Claude and GPT into one quant brain. Every day we hand-pick 3–5
+            highest-confidence football and basketball games and pack them into one combined slip
+            with total odds between <span className="text-[#f5f5f5] font-bold">2.00 and 5.00</span>.
+            Easy to play. Easy to copy onto SportyBet. Designed to win.
           </p>
           <div className="flex items-center gap-4 flex-wrap">
             <Link to="/register" data-testid="cta-trial" className="bg-[#00ff66] text-[#050505] font-mono uppercase tracking-widest text-sm px-8 py-4 hover:bg-[#f5f5f5] transition-colors">
@@ -44,8 +45,8 @@ export default function Landing() {
           <div className="mt-12 flex flex-wrap gap-6 font-mono text-[11px] uppercase tracking-widest text-[#525252]">
             <span>// 18+ only</span>
             <span>// SportyBet booking codes</span>
+            <span>// Football + Basketball mix</span>
             <span>// Cancel anytime</span>
-            <span>// Bank transfer accepted</span>
           </div>
         </div>
       </section>

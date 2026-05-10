@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from "react";
 import AppHeader from "@/components/AppHeader";
+import EmrizFooter from "@/components/EmrizFooter";
 import { api } from "@/lib/api";
-import { useAuth, formatApiError } from "@/contexts/AuthContext";
-import { toast } from "sonner";
-import { CreditCard, Building2, Upload, Loader2, CheckCircle2 } from "lucide-react";
 
 function FlutterwavePane({ onPaid }) {
   const [busy, setBusy] = useState(false);
@@ -175,6 +173,7 @@ export default function Subscription() {
           </div>
         </div>
       </main>
+      <EmrizFooter />
     </div>
   );
 }

@@ -14,9 +14,9 @@ export default function AppHeader({ children }) {
       <div className="px-6 py-4 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2" data-testid="brand-link">
           <div className="w-2 h-2 bg-[#00ff66] co-pulse" />
-          <h1 className="font-heading font-black text-2xl tracking-tight">CLAUDEODD</h1>
+          <h1 className="font-heading font-black text-2xl tracking-tight">ClaudeOdd</h1>
           <span className="font-mono text-[10px] text-[#525252] tracking-widest uppercase pl-2 border-l border-[#262626]">
-            QUANT&nbsp;BETTING&nbsp;TERMINAL
+            AI&nbsp;BETTING&nbsp;COMPANION
           </span>
         </Link>
         <nav className="flex items-center gap-6 font-mono text-[11px] uppercase tracking-widest">

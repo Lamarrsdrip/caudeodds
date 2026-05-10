@@ -1,4 +1,4 @@
-/* Component-level overrides for CLAUDEODD */
+/* Component-level overrides for ClaudeOdd */
 .App { min-height: 100vh; background: var(--co-bg); }
 
 .co-divider { height: 1px; background: var(--co-border); width: 100%; }
@@ -23,3 +23,19 @@
 .co-tag-warn { color: var(--co-warn); border-color: var(--co-warn); }
 
 .co-data { font-family: var(--font-mono); }
+
+/* Glowing emriz.eth signature */
+@keyframes emriz-pulse {
+    0%, 100% { box-shadow: 0 0 18px rgba(0, 255, 102, 0.35), inset 0 0 12px rgba(0, 255, 102, 0.06); }
+    50%      { box-shadow: 0 0 32px rgba(0, 255, 102, 0.7), inset 0 0 18px rgba(0, 255, 102, 0.12); }
+}
+.emriz-glow {
+    animation: emriz-pulse 2.4s ease-in-out infinite;
+    border-radius: 0;
+}
+
+/* Friendlier hero gradient accent */
+.co-accent-line {
+    height: 3px;
+    background: linear-gradient(90deg, #00ff66 0%, transparent 100%);
+}

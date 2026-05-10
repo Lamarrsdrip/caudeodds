@@ -148,7 +148,7 @@ def _make_match_features(rng: random.Random, sport: str) -> dict:
     }
 
 
-def generate_fixtures_for_date(date_str: str, max_per_sport: int = 6) -> List[Fixture]:
+def generate_fixtures_for_date(date_str: str, max_per_sport: int = 7) -> List[Fixture]:
     """Generate deterministic realistic fixtures for the given UTC date."""
     rng = random.Random(seed_for_date(date_str))
     fixtures: List[Fixture] = []
@@ -163,7 +163,7 @@ def generate_fixtures_for_date(date_str: str, max_per_sport: int = 6) -> List[Fi
         home, away = rng.sample(teams_pool, 2)
         feats = _make_match_features(rng, "football")
         kickoff = (base_dt + timedelta(hours=rng.randint(0, 8), minutes=rng.choice([0, 15, 30, 45]))).isoformat()
-        value_bias = rng.random() < 0.45  # 45% of fixtures have a value edge somewhere
+        value_bias = rng.random() < 0.65  # 65% of fixtures have a clear value edge somewhere
         fixtures.append(Fixture(
             sport="football",
             league=league,
@@ -193,7 +193,7 @@ def generate_fixtures_for_date(date_str: str, max_per_sport: int = 6) -> List[Fi
         home, away = rng.sample(teams_pool, 2)
         feats = _make_match_features(rng, "basketball")
         kickoff = (base_dt + timedelta(hours=rng.randint(0, 8), minutes=rng.choice([0, 30]))).isoformat()
-        value_bias = rng.random() < 0.45
+        value_bias = rng.random() < 0.65
         fixtures.append(Fixture(
             sport="basketball",
             league=league,

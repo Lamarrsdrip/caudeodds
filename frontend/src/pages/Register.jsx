@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import AppHeader from "@/components/AppHeader";
 import { useAuth, formatApiError } from "@/contexts/AuthContext";
+import EmrizFooter from "@/components/EmrizFooter";
 
 export default function Register() {
   const { register } = useAuth();
@@ -76,6 +77,7 @@ export default function Register() {
           Already have an account? <Link to="/login" className="text-[#00ff66] hover:underline">Login</Link>
         </p>
       </main>
+      <EmrizFooter />
     </div>
   );
 }

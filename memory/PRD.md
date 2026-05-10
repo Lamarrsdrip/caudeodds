@@ -40,6 +40,15 @@ Backend (FastAPI + Motor + emergentintegrations + Flutterwave + bcrypt + PyJWT)
 **Admin:** stats, users (list, grant 30d, suspend), payments (list, approve, reject), predictions (list, settle), config (GET masked secrets, POST preserves masked), rejected
 **Public:** /public/config, /
 
+## What's Been Implemented (Phase 2.1 — 2026-02-10)
+✅ **Brand renamed to "ClaudeOdd"** (proper-cased everywhere)
+✅ **Footer: "Made by emriz.eth"** glowing pulsing badge on every page (Landing, Login, Register, Pricing, Dashboard, Subscription)
+✅ **New slip algorithm** — combined ODDS land in [2.00, 5.00] (not "2-5 legs"). Greedy packs 3–5 highest-confidence games while respecting the 5.0 hard cap. Falls back to 2 legs when math forces it (correct behaviour: today's 4 picks have minimum-3 combo @ 14.10 — too high; ships 2 @ 4.62)
+✅ **Football + Basketball mixed automatically** in single slip (no sport tabs in user UI)
+✅ **Friendlier hero copy** — "WIN MORE. BET SMARTER. DAILY." + clear "3–5 games · 2.00–5.00 combined odds"
+✅ **Looser ensemble thresholds** (min_conf 60, min_ev 0.02, min_agreement 55) + 65% value-bias rate so more picks pass while staying disciplined
+✅ **Bankroll/Kelly fully removed** from user UI (admin-only via Predictions tab)
+
 ## What's Been Implemented (Phase 2 — 2026-02-10)
 ✅ **Auth + 18+ age gate** — bcrypt + JWT (7-day) + Terms acceptance + DOB
 ✅ **Brute-force lockout** — email-only identifier (K8s pod-rotation safe)
@@ -47,9 +56,8 @@ Backend (FastAPI + Motor + emergentintegrations + Flutterwave + bcrypt + PyJWT)
 ✅ **Subscription state machine** — trial → active → expired with grace
 ✅ **Flutterwave** — Standard checkout init + verify + webhook (HMAC sig); keys in MongoDB admin_config
 ✅ **Manual bank transfer** — base64 receipt upload (3MB cap) + admin approve/reject
-✅ **Combined daily slip** — single 2-5 leg parlay, no individual bet cards in user UI
+✅ **Combined daily slip** — single slip, no individual cards in user UI
 ✅ **SportyBet integration** — deterministic booking code (SB-XXXXXX-XXXX), Copy + Open in SportyBet buttons
-✅ **No bankroll/Kelly in user UI** — internal-only, removed from dashboard
 ✅ **Public landing + pricing** — locked teaser + ₦5,000/mo + free trial CTA
 ✅ **Admin panel** — Overview KPIs, Users (grant/suspend), Payments (approve/reject + receipt viewer), Predictions (W/L/V settle), Configuration (5 sections, masked secrets)
 ✅ **Locked teaser endpoint** — anon visitors see slip shape but legs masked

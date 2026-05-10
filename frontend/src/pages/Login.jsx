@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import AppHeader from "@/components/AppHeader";
 import { useAuth, formatApiError } from "@/contexts/AuthContext";
+import EmrizFooter from "@/components/EmrizFooter";
 
 export default function Login() {
   const { login } = useAuth();
@@ -49,6 +50,7 @@ export default function Login() {
           No account? <Link to="/register" className="text-[#00ff66] hover:underline">Start a 3-day free trial</Link>
         </p>
       </main>
+      <EmrizFooter />
     </div>
   );
 }

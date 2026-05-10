@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
+import EmrizFooter from "@/components/EmrizFooter";
 import DailySlip from "@/components/DailySlip";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
@@ -123,6 +124,7 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+      <EmrizFooter />
     </div>
   );
 }

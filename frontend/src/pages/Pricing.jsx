@@ -1,10 +1,11 @@
-import React, { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import AppHeader from "@/components/AppHeader";
-import { api } from "@/lib/api";
-import { useAuth } from "@/contexts/AuthContext";
 import { useState } from "react";
 import { Check } from "lucide-react";
+import AppHeader from "@/components/AppHeader";
+import EmrizFooter from "@/components/EmrizFooter";
+import { api } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import React, { useEffect } from "react";
 
 export default function Pricing() {
   const { user } = useAuth();
@@ -16,13 +17,13 @@ export default function Pricing() {
   const price = cfg?.price_ngn ?? 5000;
 
   const features = [
-    "Daily 2–5 leg AI ensemble slip",
-    "Claude + GPT consensus required",
-    "SportyBet booking code (1-tap copy)",
-    "Decimal NGN odds, deep-link to SportyBet",
-    "Disciplined NO BAD BETS filter",
+    "1 combined slip per day · always 2.00–5.00 odds",
+    "3–5 highest-confidence games · football + basketball",
+    "Claude + GPT must agree before any pick ships",
+    "SportyBet booking code · 1-tap copy + open",
+    "Decimal NGN odds · designed for SportyBet Nigeria",
     "Slip history with W/L tracking",
-    "Cancel anytime",
+    "Cancel anytime, no card details kept",
   ];
 
   return (
@@ -71,6 +72,7 @@ export default function Pricing() {
           // Pay with Flutterwave (card / bank / USSD) or local bank transfer (admin verifies same day)
         </div>
       </main>
+      <EmrizFooter />
     </div>
   );
 }

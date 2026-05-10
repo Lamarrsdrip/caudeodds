@@ -103,10 +103,10 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     bankroll: float = 1000.0
     kelly_fraction: float = 0.25
-    max_picks_per_day: int = 5
-    min_confidence: float = 70.0
-    min_agreement: float = 65.0
-    min_ev: float = 0.03
+    max_picks_per_day: int = 8  # generate more candidates so slip-builder can pack 3-5 highest-conf
+    min_confidence: float = 60.0
+    min_agreement: float = 55.0
+    min_ev: float = 0.02
     sport_filter: Literal["all", "football", "basketball"] = "all"
     updated_at: str = Field(default_factory=utcnow_iso)
 
