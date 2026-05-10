@@ -96,6 +96,18 @@ async def on_startup():
     await db.push_subscriptions.create_index("endpoint", unique=True)
     await db.push_subscriptions.create_index("user_id")
     await seed_admin(db)
+    # Reap any zombie pipeline jobs left from a previous restart so subsequent
+    # Force Re-Generate calls aren't blocked by a permanently "running" row.
+    reaped = await jobs_col.update_many(
+        {"status": "running"},
+        {"$set": {
+            "status": "failed",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "error": "interrupted by backend restart",
+        }},
+    )
+    if reaped.modified_count:
+        logger.info("Reaped %d zombie pipeline jobs from previous run", reaped.modified_count)
     # Sync admin config into runtime caches (odds API key/url) and start cron
     cfg = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
     from odds_api_service import set_runtime_config as set_odds_runtime
@@ -393,13 +405,28 @@ async def slip_generate(force: bool = False, _: dict = Depends(admin_required)):
                     "rejected": run.get("rejected_count", 0),
                     "status": "completed", "job_id": None}
 
-    # Reject if a job is already running for today
+    # Reject if a job is already running for today — but treat any job
+    # older than 10 minutes as zombie and let a new one start.
     existing_job = await jobs_col.find_one(
         {"date": date_str, "status": "running"}, {"_id": 0}
     )
     if existing_job:
-        return {"date": date_str, "cached": False, "status": "running",
-                "job_id": existing_job["id"], "message": "A generation job is already running"}
+        try:
+            started = datetime.fromisoformat(existing_job["started_at"].replace("Z", "+00:00"))
+            age_seconds = (datetime.now(timezone.utc) - started).total_seconds()
+        except Exception:
+            age_seconds = 0
+        if age_seconds < 600:  # <10 min — genuinely running
+            return {"date": date_str, "cached": False, "status": "running",
+                    "job_id": existing_job["id"],
+                    "message": f"Generation already in progress (started {int(age_seconds)}s ago)"}
+        # Zombie — mark failed and continue
+        await jobs_col.update_one({"id": existing_job["id"]}, {"$set": {
+            "status": "failed",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "error": f"timed out after {int(age_seconds)}s — superseded by new force-regen",
+        }})
+        logger.warning("Zombie job %s reaped (age %ds)", existing_job["id"], int(age_seconds))
 
     job_id = str(uuid.uuid4())
     await jobs_col.insert_one({
