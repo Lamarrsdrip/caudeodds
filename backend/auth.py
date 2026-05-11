@@ -40,11 +40,12 @@ def jwt_secret() -> str:
     return s
 
 
-def create_access_token(user_id: str, email: str, role: str) -> str:
+def create_access_token(user_id: str, email: str, role: str, password_version: int = 1) -> str:
     payload = {
         "sub": user_id,
         "email": email,
         "role": role,
+        "pwv": password_version,  # token revoked when user's password_version increments
         "exp": datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_TTL_HOURS),
         "iat": datetime.now(timezone.utc),
         "type": "access",
@@ -96,6 +97,12 @@ async def get_current_user_dep(request: Request) -> dict:
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    # Force-logout: if password_version on the user has incremented since this
+    # token was issued, the token is revoked (e.g. password change on another device).
+    user_pwv = int(user.get("password_version", 1) or 1)
+    token_pwv = int(payload.get("pwv", 1) or 1)
+    if token_pwv < user_pwv:
+        raise HTTPException(status_code=401, detail="Session expired — please sign in again")
     return user
 
 
@@ -135,8 +142,18 @@ async def clear_failures(db: AsyncIOMotorDatabase, identifier: str) -> None:
 # ------------------ Seed admin ------------------
 
 async def seed_admin(db: AsyncIOMotorDatabase) -> None:
+    """Seed the initial admin user — ONLY on first run, never overwrite.
+
+    Production-safe: if an admin already exists in the DB, this function never
+    touches their password, even if the ADMIN_PASSWORD env var differs. Admin
+    password changes made via the UI persist permanently across redeploys.
+
+    For genuine emergency recovery, set ADMIN_FORCE_PASSWORD_RESET=1 in env —
+    that one-time signal will reset the password back to ADMIN_PASSWORD.
+    """
     email = os.environ.get("ADMIN_EMAIL", "admin@claudeodd.com").lower().strip()
     pw = os.environ.get("ADMIN_PASSWORD", "Admin@2026")
+    force_reset = os.environ.get("ADMIN_FORCE_PASSWORD_RESET", "").strip() in ("1", "true", "yes")
 
     existing = await db.users.find_one({"email": email}, {"_id": 0})
     if existing is None:
@@ -147,6 +164,7 @@ async def seed_admin(db: AsyncIOMotorDatabase) -> None:
             "name": "Super Admin",
             "role": "admin",
             "password_hash": hash_password(pw),
+            "password_version": 1,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "subscription_status": "active",  # admin always has access
             "subscription_ends_at": (datetime.now(timezone.utc) + timedelta(days=3650)).isoformat(),
@@ -156,13 +174,20 @@ async def seed_admin(db: AsyncIOMotorDatabase) -> None:
             "accepted_terms": True,
         }
         await db.users.insert_one(doc)
-        logger.info("Seeded admin user %s", email)
-    elif not verify_password(pw, existing.get("password_hash", "")):
+        logger.info("Seeded admin user %s (first run)", email)
+        return
+
+    if force_reset:
         await db.users.update_one(
             {"email": email},
-            {"$set": {"password_hash": hash_password(pw), "role": "admin"}},
+            {"$set": {
+                "password_hash": hash_password(pw),
+                "password_version": (existing.get("password_version", 1) or 1) + 1,
+                "role": "admin",
+            }},
         )
-        logger.info("Updated admin password for %s", email)
+        logger.warning("Admin password FORCE-RESET via ADMIN_FORCE_PASSWORD_RESET env var for %s", email)
+    # Otherwise: NEVER overwrite. The admin's UI-changed password persists across redeploys.
 
 
 def random_secret(n: int = 32) -> str:

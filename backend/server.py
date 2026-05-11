@@ -312,6 +312,21 @@ async def auth_register(payload: RegisterPayload):
     doc.pop("password_hash", None)
 
     token = create_access_token(user_id, email, "user")
+
+    # Fire-and-forget welcome email (does not block registration on SMTP outages).
+    async def _send_welcome():
+        try:
+            cfg_doc = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
+            if not cfg_doc.get("smtp_host"):
+                return
+            from email_service import send_email, template_welcome
+            subject, html = template_welcome(payload.name.strip())
+            await send_email(db, cfg_doc, email, subject, html, kind="welcome",
+                             meta={"user_id": user_id})
+        except Exception as e:
+            logger.warning("Welcome email failed for %s: %s", email, e)
+    asyncio.create_task(_send_welcome())
+
     return TokenResponse(
         access_token=token,
         user=UserPublic(
@@ -327,18 +342,40 @@ async def auth_register(payload: RegisterPayload):
 async def auth_login(payload: LoginPayload, request: Request):
     email = payload.email.lower().strip()
     identifier = email  # email-only: K8s ingress rotates client IPs across pods, so per-IP counters fragment
+    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host if request.client else ""
+    ua = (request.headers.get("user-agent") or "")[:300]
+
+    async def _log_activity(user_id, success, reason=None):
+        try:
+            await db.login_activity.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "email": email,
+                "ip": ip,
+                "ua": ua,
+                "success": success,
+                "reason": reason,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception as e:
+            logger.debug("login_activity log failed: %s", e)
 
     if await is_locked(db, identifier):
+        await _log_activity(None, False, "locked_out")
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
 
     user = await users_col.find_one({"email": email}, {"_id": 0})
     if not user or not verify_password(payload.password, user.get("password_hash", "")):
         await record_failure(db, identifier)
+        await _log_activity(user.get("id") if user else None, False,
+                            "bad_password" if user else "no_user")
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     await clear_failures(db, identifier)
     user = await refresh_status(db, user)
-    token = create_access_token(user["id"], email, user.get("role", "user"))
+    pwv = int(user.get("password_version", 1) or 1)
+    token = create_access_token(user["id"], email, user.get("role", "user"), password_version=pwv)
+    await _log_activity(user["id"], True, None)
     return TokenResponse(
         access_token=token,
         user=UserPublic(
@@ -366,6 +403,107 @@ async def auth_me(user: dict = Depends(get_current_user_dep)):
 @api.post("/auth/logout")
 async def auth_logout(user: dict = Depends(get_current_user_dep)):
     return {"ok": True}
+
+
+# ------------------ Password change + SMTP + activity log ------------------
+
+@api.post("/auth/password/change")
+async def auth_password_change(payload: dict, request: Request, user: dict = Depends(get_current_user_dep)):
+    """Change the logged-in user's password. Bumps password_version which
+    INVALIDATES every existing JWT for this user (force-logout other sessions).
+    Sends a confirmation email if SMTP is configured.
+
+    Body: { current_password, new_password }
+    """
+    current = (payload.get("current_password") or "")
+    new_pw = (payload.get("new_password") or "")
+    if len(new_pw) < 8 or len(new_pw) > 128:
+        raise HTTPException(status_code=400, detail="New password must be 8-128 characters")
+    if new_pw == current:
+        raise HTTPException(status_code=400, detail="New password must differ from current")
+
+    # Re-fetch with the hash since get_current_user_dep strips it
+    full = await users_col.find_one({"id": user["id"]}, {"_id": 0})
+    if not full or not verify_password(current, full.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    new_pwv = int(full.get("password_version", 1) or 1) + 1
+    await users_col.update_one(
+        {"id": user["id"]},
+        {"$set": {
+            "password_hash": hash_password(new_pw),
+            "password_version": new_pwv,
+            "password_changed_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    new_token = create_access_token(user["id"], user["email"], user.get("role", "user"), password_version=new_pwv)
+
+    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "")
+    # Fire-and-forget confirmation email
+    async def _send_confirm():
+        try:
+            cfg_doc = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
+            if not cfg_doc.get("smtp_host"):
+                return
+            from email_service import send_email, template_password_changed
+            subject, html = template_password_changed(
+                user.get("name", "there"),
+                datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+                ip,
+            )
+            await send_email(db, cfg_doc, user["email"], subject, html,
+                             kind="password_changed", meta={"user_id": user["id"]})
+        except Exception as e:
+            logger.warning("Password-changed email failed: %s", e)
+    asyncio.create_task(_send_confirm())
+
+    return {"ok": True, "access_token": new_token,
+            "message": "Password updated. All other sessions have been signed out."}
+
+
+@api.post("/admin/smtp/test")
+async def admin_smtp_test(_: dict = Depends(admin_required)):
+    """Verify SMTP connectivity without sending an email."""
+    cfg_doc = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
+    from email_service import test_smtp_connection
+    return await test_smtp_connection(cfg_doc)
+
+
+@api.post("/admin/smtp/send-test")
+async def admin_smtp_send_test(payload: dict, admin: dict = Depends(admin_required)):
+    """Send a test email to the supplied recipient (default: admin's own email)."""
+    cfg_doc = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
+    to = (payload.get("to") or admin["email"]).strip()
+    from email_service import send_email, template_test
+    subject, html = template_test()
+    log = await send_email(db, cfg_doc, to, subject, html, kind="smtp_test",
+                           meta={"triggered_by": admin["id"]})
+    return log
+
+
+@api.get("/admin/emails/logs")
+async def admin_email_logs(limit: int = 100, _: dict = Depends(admin_required)):
+    limit = max(1, min(int(limit or 100), 500))
+    docs = await db.email_logs.find({}, {"_id": 0}).sort("sent_at", -1).to_list(limit)
+    return docs
+
+
+@api.get("/admin/activity")
+async def admin_activity(user_id: Optional[str] = None, limit: int = 100,
+                          _: dict = Depends(admin_required)):
+    """Login activity log — both successes and failures, with ip/ua/timestamp."""
+    limit = max(1, min(int(limit or 100), 500))
+    q = {"user_id": user_id} if user_id else {}
+    docs = await db.login_activity.find(q, {"_id": 0}).sort("ts", -1).to_list(limit)
+    return docs
+
+
+@api.get("/auth/activity")
+async def my_activity(limit: int = 20, user: dict = Depends(get_current_user_dep)):
+    """A user's own login history."""
+    limit = max(1, min(int(limit or 20), 50))
+    docs = await db.login_activity.find({"user_id": user["id"]}, {"_id": 0}).sort("ts", -1).to_list(limit)
+    return docs
 
 
 # ------------------ Daily Slip ------------------

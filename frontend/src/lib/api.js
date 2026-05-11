@@ -71,4 +71,13 @@ export const api = {
   adminApibasketballPreflight: () => client.get(`/admin/apibasketball/preflight`).then(r => r.data),
   adminSettleNow: () => client.post(`/admin/settle/now`).then(r => r.data),
   adminScheduleSync: () => client.post(`/admin/schedule/sync`).then(r => r.data),
+  // Phase 7 — security + email
+  changePassword: (current_password, new_password) =>
+    client.post(`/auth/password/change`, { current_password, new_password }).then(r => r.data),
+  myActivity: (limit = 20) => client.get(`/auth/activity?limit=${limit}`).then(r => r.data),
+  adminActivity: (limit = 100, userId) =>
+    client.get(`/admin/activity?limit=${limit}${userId ? `&user_id=${userId}` : ""}`).then(r => r.data),
+  adminSmtpTest: () => client.post(`/admin/smtp/test`).then(r => r.data),
+  adminSmtpSendTest: (to) => client.post(`/admin/smtp/send-test`, { to: to || "" }).then(r => r.data),
+  adminEmailLogs: (limit = 100) => client.get(`/admin/emails/logs?limit=${limit}`).then(r => r.data),
 };

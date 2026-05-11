@@ -1,0 +1,85 @@
+{
+  "summary": "Phase 7A Admin Security — FULL PASS on all critical paths. 10/10 new phase7 backend tests pass. CRITICAL persistence test confirmed: changed admin password → restarted backend → new pw works (200) and OLD env password rejected (401) → reverted to Admin@2026. seed_admin no longer overwrites existing admin password. Regression: phase4 13/14+1skip, phase5 8/8, phase6 6/6, deep_audit 11/12+1skip+1 pre-existing fail (test_slip_today_legs_are_realistic, NOT a regression). Frontend /admin/security renders all 4 cards (change-password, smtp, email-logs, activity) with full data-testid coverage; Security sidebar nav present between Predictions and Configuration. SMTP test → 'Failed ❌ · MISSING_CONFIG' chip with red border + human-readable 'SMTP host / user / password must all be set.'; wrong-current-password → 'Current password is incorrect' toast; email-logs table shows 4 SMTP_TEST FAILED MISSING_CONFIG rows; Login Activity card shows '76 OK / 11 FAILED' tags + IP + UA columns. Mobile (390x844) renders all 4 cards. Dashboard upcoming-fixtures + landing public-roi-section regressions OK. Zero console errors except the expected 401 from the bad-current-password assertion.",
+  "tests_executed": {
+    "phase7_pytest (10/10 PASS)": [
+      "test_password_change_rejects_wrong_current — 401 with 'incorrect'",
+      "test_password_change_rejects_short_new — 400",
+      "test_password_change_rejects_same_password — 400",
+      "test_password_change_invalidates_old_token_and_persists — old token → 401, rotated token works, new login works",
+      "test_login_activity_records_success_and_failure — failure row has reason ∈ bad_password|no_user",
+      "test_my_activity_returns_only_self — rows scoped to caller email",
+      "test_smtp_test_with_empty_config — returns ok=false + error_class=MISSING_CONFIG",
+      "test_smtp_send_test_no_config_logs_failure — persists email_logs row status=failed",
+      "test_admin_email_logs_endpoint — array sorted desc by sent_at",
+      "test_admin_endpoints_require_admin — 401/403 without admin JWT for all 4 endpoints"
+    ],
+    "CRITICAL_persistence_test (PASS via /tmp/persistence_test.py)": [
+      "1. login OLD (Admin@2026) → 200",
+      "2. POST /api/auth/password/change → NEW (Persist7Test!) → 200",
+      "3. sudo supervisorctl restart backend + sleep 7s",
+      "4. login NEW after restart → 200 (seed_admin did NOT overwrite ✅)",
+      "5. login OLD after restart → 401 (Invalid credentials, as expected)",
+      "6. revert NEW → OLD via change endpoint → 200",
+      "7. final login OLD → 200 (cleanup complete, subsequent tests unaffected)"
+    ],
+    "regression_pytest (38/40 pass, 2 skip, 1 pre-existing fail)": [
+      "phase4: 13/14 + 1 skip (TestStrategyCap.test_slip_today_respects_cap, unchanged)",
+      "phase5: 8/8 (rollover + public ROI + slip-generate-date)",
+      "phase6: 6/6 (fixture-first schedule pipeline)",
+      "deep_audit: 11/12 + 1 skip + 1 pre-existing FAIL (test_slip_today_legs_are_realistic — empty slate / Odds API stub, NOT a regression, documented since iter_6)"
+    ],
+    "frontend_desktop_1920x1080": [
+      "Admin login (admin@claudeodd.com / Admin@2026) → /admin redirect — PASS",
+      "/admin/security route renders <AdminSecurity/> — PASS",
+      "Sidebar 'Security' nav between Predictions and Configuration (data-testid='admin-nav-security') — PASS",
+      "4 cards present with data-testids: change-password-card, smtp-card, email-logs-card, activity-card — PASS",
+      "SMTP Test Connection (smtp-test-btn) → smtp-status block 'Failed ❌ · MISSING_CONFIG' + red border + 'SMTP host / user / password must all be set.' + '—:587 · —' — PASS",
+      "Send Test Email (smtp-send-btn) with smtp-test-to='qa-test@example.com' → posts to /api/admin/smtp/send-test, log row appended (MISSING_CONFIG) — PASS",
+      "Change Password: wrong current → top-right toast 'Current password is incorrect' (red icon) — PASS",
+      "Email Delivery Log: 4 SMTP_TEST rows visible with FAILED status + MISSING_CONFIG error chip, Refresh button works — PASS",
+      "Login Activity card top-row co-tags '76 OK' (green) and '11 FAILED' (red), rows show When/Email/Result/Reason/IP (34.16.56.64)/User-Agent — PASS",
+      "Dashboard /dashboard regression: data-testid='upcoming-fixtures' present — PASS",
+      "Landing / regression: data-testid='public-roi-section' present — PASS"
+    ],
+    "frontend_mobile_390x844": [
+      "/admin/security renders, all 4 data-testid='*-card' nodes present (mobile cards visible = 4) — PASS"
+    ],
+    "welcome_email_register_smoke": "POST /api/auth/register (new user, no SMTP) → 200 in <2s (non-blocking ✅). But NO 'welcome' kind row appears in /api/admin/emails/logs — see minor issue below."
+  },
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/register (welcome email)", "issue": "Spec expected a 'welcome' kind email_logs row with status='failed' + error_class='MISSING_CONFIG' when SMTP is unconfigured, but server.py L320 short-circuits with `if not cfg_doc.get('smtp_host'): return` BEFORE calling send_email(), so no log entry is ever persisted. Registration itself is non-blocking and works (200). Recommend: drop the early-return and let send_email() handle MISSING_CONFIG classification so the welcome attempt is visible in the Email Delivery Log. Low priority — visibility gap only, not a functional break."},
+      {"endpoint": "/api/slip/today (admin, no slate)", "issue": "Pre-existing from iter_6/iter_7 — test_deep_audit::test_slip_today_legs_are_realistic asserts len(legs)>0 but today's slate is empty (Odds API stub). NOT a Phase 7 regression."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase7_admin_security.py",
+    "/app/test_reports/pytest/phase7_results.xml",
+    "/app/test_reports/pytest/regression_iter8.xml"
+  ],
+  "action_items": [
+    "(LOW) In /app/backend/server.py L320, remove the early-return for missing smtp_host inside _send_welcome() — let send_email() classify and log MISSING_CONFIG so the welcome attempt is auditable in /api/admin/emails/logs (matches the spec's expectation).",
+    "(LOW, carry-over) Update tests/test_deep_audit.py::TestAIRealism::test_slip_today_legs_are_realistic to pytest.skip when awaiting_tomorrow==True."
+  ],
+  "critical_code_review_comments": [
+    "auth.py + server.py — password_version (pwv) claim cleanly drives force-logout: get_current_user compares JWT pwv against user pwv and raises 401 'Session expired'. Rotated token returned by /password/change is honoured. ✅",
+    "seed_admin behavior verified by direct experiment: an admin doc with an updated hashed password+pwv survives `supervisorctl restart backend` intact. CRITICAL prod-grade requirement met. ✅",
+    "email_service.py — error classification (MISSING_CONFIG / WRONG_PASSWORD / INVALID_APP_PASSWORD / SMTP_BLOCKED / TLS_ERROR / TIMEOUT / HOST_NOT_FOUND / UNKNOWN) is clean and the email_logs persistence pattern (kind/status/error_class/meta) is the right shape for the upcoming Phase 7B Email Center.",
+    "AdminSecurity.jsx — solid data-testid coverage on every interactive control; semantic red/green borders on smtp-status; co-tags on activity card; mobile responsiveness retained.",
+    "Minor gap (see action items): _send_welcome short-circuits before logging when SMTP is missing — preview pod thus shows zero welcome rows in the log, which contradicts the review spec saying 'shows a welcome kind log entry with status=failed'."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% on phase7 new (10/10) + persistence test PASS; regression 38/40 + 2 skips + 1 pre-existing fail (unchanged from iter_6/7)", "frontend": "100% — all 4 cards present, all data-testids resolve, SMTP error UX correct, password toast correct, mobile layout OK, no console errors except the asserted 401 from intentional wrong-pw test"},
+  "test_credentials": "admin@claudeodd.com / Admin@2026 (verified working before AND after persistence experiment; revert was confirmed).",
+  "seed_data_creation": "Generated 1 new welcome registration (qa_welcome_*) + 1 new SMTP send-test row + 1 admin login row during testing. All test data is non-destructive.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 7A complete. To rerun: `cd /app/backend && pytest tests/test_phase7_admin_security.py tests/test_phase4.py tests/test_phase5_rollover.py tests/test_phase6_fixture_first.py tests/test_deep_audit.py -v`. Expect 10+13+8+6+11 passes, 3 skips, 1 pre-existing failure. The standalone persistence test at /tmp/persistence_test.py restarts backend — re-run only if you want to re-prove the seed_admin fix; it correctly reverts the password. Single visibility gap to track for Phase 7B: welcome email is NOT logged when SMTP is unconfigured (server.py L320 early-return). Frontend /admin/security is production-ready; SMTP error UX is sharp; activity log is being populated by every login attempt (success and failure with reason).",
+  "rca of the issue": "Minor: welcome email log missing when SMTP unconfigured. RCA: server.py:_send_welcome() has `if not cfg_doc.get('smtp_host'): return` BEFORE calling send_email(). Mitigation: drop the early-return; send_email() already classifies MISSING_CONFIG and persists the row. One-line fix in main agent's next pass."
+}
