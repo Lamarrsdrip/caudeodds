@@ -90,3 +90,33 @@ def test_fixture_sync_imports_enrich_one():
     # Also check it's referenced inside run_ai_for_new_odds
     src = open(mod.__file__).read()
     assert "_enrich_one(" in src, "run_ai_for_new_odds must call _enrich_one"
+
+
+def test_pipeline_date_scope_is_strict():
+    """`fetch_real_fixtures_for_today` must only return events whose UTC
+    commence_time matches the requested target_day. Earlier code included
+    a 'today or tomorrow window' which caused Force Re-Generate for today
+    to pick tomorrow's matches."""
+    src = open("/app/backend/odds_api_service.py").read()
+    assert "if ct.date() != target_day" in src, \
+        "odds_api_service must filter strictly to target_day"
+    assert "today or tomorrow window" not in src, \
+        "stale lenient date filter still present"
+
+
+def test_build_slip_drops_mismatched_kickoff_picks():
+    """Defensive: build_slip must not include picks whose kickoff date
+    differs from the slip's date (protects against legacy DB rows)."""
+    from datetime import datetime, timezone, timedelta
+    from types import SimpleNamespace
+    from slip_builder import _filter_picks_to_date
+
+    tomorrow_ko = (datetime.now(timezone.utc) + timedelta(days=1, hours=18)).isoformat()
+    today_ko = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
+    today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    mistagged = SimpleNamespace(kickoff=tomorrow_ko)
+    correct = SimpleNamespace(kickoff=today_ko)
+    out = _filter_picks_to_date([mistagged, correct], today_iso)
+    assert correct in out and mistagged not in out, \
+        "_filter_picks_to_date must drop picks whose kickoff date != slip date"

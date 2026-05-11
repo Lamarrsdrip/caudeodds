@@ -121,7 +121,32 @@ def _select_picks(picks: List) -> List:
     return [max(picks, key=lambda p: p.confidence)]
 
 
+def _filter_picks_to_date(picks: List, date_str: str) -> List:
+    """Hard date-scope guard: only keep picks whose kickoff UTC-date matches
+    the slip's date. Defensive against legacy DB rows where a pick may have
+    been written with the wrong date (e.g. before the strict date-window fix).
+    """
+    from datetime import datetime
+    out = []
+    for p in picks:
+        try:
+            ko = p.kickoff or ""
+            if not ko:
+                # No kickoff metadata — fall through (don't drop).
+                out.append(p)
+                continue
+            kd = datetime.fromisoformat(ko.replace("Z", "+00:00")).date().isoformat()
+            if kd == date_str:
+                out.append(p)
+        except Exception:
+            out.append(p)  # parse failure → keep, don't lose a valid pick
+    return out
+
+
 def build_slip(date_str: str, all_picks: List, sportybet_url: str = "https://www.sportybet.com/ng/", manual_code: str = "") -> CombinedSlip | None:
+    if not all_picks:
+        return None
+    all_picks = _filter_picks_to_date(all_picks, date_str)
     if not all_picks:
         return None
     picks = _select_picks(all_picks)

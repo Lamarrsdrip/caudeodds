@@ -398,7 +398,7 @@ async def fetch_real_fixtures_for_today(date_str: str, max_per_sport: int = 7) -
                 ct = datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00"))
             except Exception:
                 continue
-            if not (target_day <= ct.date() < next_day + timedelta(days=1)):  # today or tomorrow window
+            if ct.date() != target_day:  # strict: only the requested UTC day
                 continue
             fx = _to_internal_fixture(ev, "football", league, country, cc)
             if fx:
@@ -425,7 +425,7 @@ async def fetch_real_fixtures_for_today(date_str: str, max_per_sport: int = 7) -
                 ct = datetime.fromisoformat(ev["commence_time"].replace("Z", "+00:00"))
             except Exception:
                 continue
-            if not (target_day <= ct.date() < next_day + timedelta(days=1)):
+            if ct.date() != target_day:  # strict: only the requested UTC day
                 continue
             fx = _to_internal_fixture(ev, "basketball", league, country, cc)
             if fx:
