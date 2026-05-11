@@ -52,6 +52,14 @@ Users place real money on these picks. Every fixture, price, calculation, and pr
 - **Tomorrow pre-gen cron** — scheduler.py adds `_run_tomorrow_pregen` job running daily at 22:00 UTC so tomorrow's slip is ready the moment today's slate ends.
 - **Admin Pre-Gen Tomorrow** button on `/admin/predictions` → `POST /api/slip/generate?date=tomorrow`. Endpoint also accepts explicit `YYYY-MM-DD` dates with proper 400 on invalid input.
 
+### Phase 6 — Fixture-first pipeline / "Never Empty" dashboard (2026-05-10)
+- **Problem**: dashboard appeared "broken" when bookmakers hadn't posted tomorrow's odds yet (typically before 18:00 UTC), even though scheduled matches existed.
+- **Solution**: separated MATCH SCHEDULE (always available days ahead from API-Football/API-Basketball) from BETTING ODDS (drip-fed by bookmakers throughout the day).
+- New service `fixture_sync_service.py` runs every 15 min and stages: **schedule sync → odds enrichment → AI analysis**. New collection `claudeodd_schedule` holds fixtures with `odds_status` (`waiting`/`available`) and `ai_status` (`pending`/`analyzing`/`ready`/`rejected`/`failed`).
+- **New endpoint** `GET /api/schedule/upcoming?days=3` (public) returns the schedule with status badges + per-day summary counts. `POST /api/admin/schedule/sync` triggers the cycle on demand (admin only).
+- **New frontend component** `UpcomingFixtures.jsx` on Dashboard: date tabs (Today/Tomorrow/+1), summary chips, fixture rows with colour-coded badges (yellow=WAITING FOR ODDS / blue+spin=ANALYZING / green=READY / gray=NO BET / orange=RETRYING). Auto-polls every 60s so users watch fixtures flip from waiting → ready the moment bookmakers price them. Result: dashboard is **never empty when matches actually exist**.
+- Verified: 14 real fixtures fetched across 3 days from API-Football in preview (Napoli vs Bologna, Tottenham vs Leeds, etc.).
+
 ## Validated
 - 100% pass on iter_3 / iter_4 / iter_5 / **iter_6** testing-agent runs (32 backend pytest passing + 3 expected skips; comprehensive frontend audit desktop+mobile 390x844, 0 console errors across /, /dashboard, /admin/predictions, /pricing, /subscription)
 - iter_6: Phase-5 features (PWA auto-update / Public ROI / Next-day rollover) all verified end-to-end via public URL
