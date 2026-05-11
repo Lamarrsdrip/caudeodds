@@ -71,6 +71,7 @@ export const api = {
   adminApibasketballPreflight: () => client.get(`/admin/apibasketball/preflight`).then(r => r.data),
   adminSettleNow: () => client.post(`/admin/settle/now`).then(r => r.data),
   adminScheduleSync: () => client.post(`/admin/schedule/sync`).then(r => r.data),
+  adminScheduleHeal: () => client.post(`/admin/schedule/heal`).then(r => r.data),
   // Phase 7 — security + email
   changePassword: (current_password, new_password) =>
     client.post(`/auth/password/change`, { current_password, new_password }).then(r => r.data),

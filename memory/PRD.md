@@ -52,6 +52,14 @@ Users place real money on these picks. Every fixture, price, calculation, and pr
 - **Tomorrow pre-gen cron** — scheduler.py adds `_run_tomorrow_pregen` job running daily at 22:00 UTC so tomorrow's slip is ready the moment today's slate ends.
 - **Admin Pre-Gen Tomorrow** button on `/admin/predictions` → `POST /api/slip/generate?date=tomorrow`. Endpoint also accepts explicit `YYYY-MM-DD` dates with proper 400 on invalid input.
 
+### Phase 9 — Self-healing fixture pipeline (2026-05-11)
+- **Root-cause fix for "today's picks vanished" + "tomorrow's match showing under today"**: every fixture-sync cycle (and every admin Force Re-Generate) now runs `self_heal_bad_data()` first which:
+  - **A) Drops mistagged picks**: any row in `claudeodd_picks` whose `kickoff` UTC-date doesn't match `pick.date` is deleted. Auto-removes legacy Celta-Vigo-on-today rows.
+  - **B) Resets orphan schedule entries**: any `claudeodd_schedule` row with `ai_status='ready'` and a `pick_id` that no longer exists in `claudeodd_picks` (e.g. wiped by old destructive Force Re-Gen) gets reset to `ai_status='pending'` and `pick_id=null` so the next AI run rebuilds the missing pick.
+- New admin endpoint `POST /api/admin/schedule/heal` exposes this on demand. New **"Heal Bad Data"** button on `/admin/predictions` (orange chip) — one click cleans + re-syncs + re-AIs. Toast reports "Healed · dropped N mistagged picks, reset M orphan schedule entries".
+- Force Re-Generate now also calls self-heal before the pipeline so a single click fixes BOTH the underlying bad data AND regenerates the slip.
+- 4 new pytest cases in `tests/test_phase9_self_heal.py`. Full regression: **45 passed / 1 expected skip**.
+
 ### Phase 8 — Non-destructive Force Re-Generate + fixture-sync enrichment + strict date scope (2026-05-11)
 - **CRITICAL UX FIX — Force Re-Generate no longer wipes a working slip**: `slip_generate(force=true)` previously called `picks_col.delete_many` BEFORE knowing whether the new run produced picks. Now only deletes when `new picks >= 1`. Sets `job.kept_old=true` and toasts "Re-run produced 0 picks — KEPT existing slip intact".
 - **CRITICAL DATA FIX — fixture-sync picks now ship with real data_richness**: `fixture_sync_service.run_ai_for_new_odds` rebuilt Fixture from cached odds without enrichment → `data_richness=0.0` → slip-quality gate (≥40%) suppressed valid picks. Now calls `_enrich_one(db, fx)` (parallel, capped at 6) before `run_ensemble`.

@@ -460,21 +460,91 @@ async def run_ai_for_new_odds(db, date_str: str, settings: Optional[Settings] = 
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+async def self_heal_bad_data(db, dates: List[str]) -> Dict:
+    """Self-healing scrub run at the start of every fixture-sync cycle.
+
+    Fixes two production bugs:
+
+    A) Legacy mistagged picks — claudeodd_picks rows where the pick's `date`
+       does not match the UTC date of its `kickoff`. This happened when the
+       old odds_api_service date-window included tomorrow's matches in today's
+       pipeline. Now we strictly delete those orphans and (b) below also
+       schedules the pick to be re-built under the right date.
+
+    B) Orphaned schedule entries — schedule says `ai_status=ready` and
+       references a `pick_id`, but that pick was destructively wiped (by
+       force-regen or legacy bug) and no longer exists in claudeodd_picks.
+       We reset those entries to `ai_status=pending` so the next cron tick
+       regenerates the pick.
+
+    Returns counts so admin can see how much was healed.
+    """
+    healed_mistagged = healed_orphans = 0
+
+    # ── A) Drop mistagged picks ────────────────────────────────────────────
+    for d in dates:
+        cursor = db.claudeodd_picks.find({"date": d}, {"_id": 0, "id": 1, "date": 1, "kickoff": 1})
+        async for p in cursor:
+            ko = p.get("kickoff") or ""
+            if not ko:
+                continue
+            try:
+                kd = datetime.fromisoformat(ko.replace("Z", "+00:00")).date().isoformat()
+            except Exception:
+                continue
+            if kd != p["date"]:
+                await db.claudeodd_picks.delete_one({"id": p["id"]})
+                healed_mistagged += 1
+                # Also reset any schedule entry that pointed to this pick
+                await db[SCHEDULE_COLLECTION].update_many(
+                    {"pick_id": p["id"]},
+                    {"$set": {"ai_status": "pending", "pick_id": None,
+                              "updated_at": datetime.now(timezone.utc).isoformat()}},
+                )
+                logger.info("Self-heal: dropped mistagged pick %s (date=%s but kickoff=%s)",
+                            p["id"], p["date"], kd)
+
+    # ── B) Reset orphan schedule entries ──────────────────────────────────
+    for d in dates:
+        cursor = db[SCHEDULE_COLLECTION].find({
+            "date": d,
+            "ai_status": "ready",
+            "pick_id": {"$ne": None},
+        }, {"_id": 0, "id": 1, "pick_id": 1})
+        async for s in cursor:
+            pick = await db.claudeodd_picks.find_one({"id": s["pick_id"]}, {"_id": 0, "id": 1})
+            if pick is None:
+                await db[SCHEDULE_COLLECTION].update_one(
+                    {"id": s["id"]},
+                    {"$set": {"ai_status": "pending", "pick_id": None,
+                              "updated_at": datetime.now(timezone.utc).isoformat()}},
+                )
+                healed_orphans += 1
+                logger.info("Self-heal: reset orphan schedule %s (pick_id=%s missing)",
+                            s["id"], s["pick_id"])
+
+    return {"mistagged_dropped": healed_mistagged, "orphans_reset": healed_orphans}
+
+
 async def run_full_cycle(db, dates: Optional[List[str]] = None) -> Dict:
     """One full sync → odds-enrich → AI cycle across the given dates.
 
     Default dates: today, tomorrow, day-after-tomorrow.
+    Self-heals bad data (mistagged picks, orphan schedule entries) first.
     """
     if not dates:
         today = datetime.now(timezone.utc).date()
         dates = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(0, 3)]
+
+    heal = await self_heal_bad_data(db, dates)
 
     out: Dict[str, Dict] = {}
     for d in dates:
         sched_stats = await sync_schedule_for_date(db, d)
         odds_stats = await enrich_with_odds(db, d)
         ai_stats = await run_ai_for_new_odds(db, d)
-        out[d] = {"schedule": sched_stats, "odds": odds_stats, "ai": ai_stats}
+        out[d] = {"schedule": sched_stats, "odds": odds_stats, "ai": ai_stats,
+                  "heal": heal if d == dates[0] else None}
     return out
 
 

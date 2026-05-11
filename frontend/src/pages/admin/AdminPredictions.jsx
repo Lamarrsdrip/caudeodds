@@ -107,6 +107,27 @@ export default function AdminPredictions() {
     finally { setSavingCode(false); }
   };
 
+  const runHeal = async () => {
+    setBusy(true);
+    try {
+      const r = await api.adminScheduleHeal();
+      const a = r.mistagged_dropped ?? 0;
+      const b = r.orphans_reset ?? 0;
+      if (a === 0 && b === 0) {
+        toast.success("No bad data found — predictions are clean.");
+      } else {
+        toast.success(`Healed · dropped ${a} mistagged pick${a === 1 ? "" : "s"}, reset ${b} orphan schedule entr${b === 1 ? "y" : "ies"}. Next 15-min cron will rebuild missing picks; or click Force Re-Generate now.`, { duration: 9000 });
+      }
+      // Also kick a schedule sync so the rebuild starts immediately
+      await api.adminScheduleSync().catch(() => {});
+      refresh();
+    } catch (e) {
+      toast.error(formatApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6" data-testid="admin-predictions-view">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -120,6 +141,9 @@ export default function AdminPredictions() {
           </button>
           <button onClick={() => generate(false, "tomorrow")} disabled={busy} data-testid="generate-tomorrow-btn" className="border border-[#00ff66] text-[#00ff66] hover:bg-[#00ff66] hover:text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 disabled:opacity-50 flex-1 sm:flex-none">
             {busy ? "Running…" : "Pre-Gen Tomorrow"}
+          </button>
+          <button onClick={runHeal} disabled={busy} data-testid="heal-btn" className="border border-[#ff6b35] text-[#ff6b35] hover:bg-[#ff6b35] hover:text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 disabled:opacity-50 flex-1 sm:flex-none" title="Cleans mistagged picks (kickoff != date) and resets orphan 'ready' schedule entries so the cron rebuilds missing picks">
+            {busy ? "Running…" : "Heal Bad Data"}
           </button>
         </div>
       </div>

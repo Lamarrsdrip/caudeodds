@@ -546,9 +546,23 @@ async def schedule_upcoming(date: Optional[str] = None, days: int = 3):
 
 @api.post("/admin/schedule/sync")
 async def admin_schedule_sync(_: dict = Depends(admin_required)):
-    """Trigger the fixture-first pipeline on demand (admin). Returns counts."""
+    """Trigger the fixture-first pipeline on demand (admin). Returns counts.
+    Also self-heals legacy mistagged picks and orphan schedule entries."""
     from fixture_sync_service import run_full_cycle
     return await run_full_cycle(db)
+
+
+@api.post("/admin/schedule/heal")
+async def admin_schedule_heal(_: dict = Depends(admin_required)):
+    """One-shot self-heal: drops mistagged picks (kickoff date != pick date)
+    and resets orphan 'ready' schedule entries so the next cron regenerates
+    the missing picks. Use this if you see today's picks vanishing or
+    tomorrow's matches showing under today on /admin/predictions."""
+    from fixture_sync_service import self_heal_bad_data
+    from datetime import timedelta
+    today = datetime.now(timezone.utc).date()
+    dates = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(-1, 4)]
+    return await self_heal_bad_data(db, dates)
 
 
 async def _build_slip_for_date(date_str: str, cfg: dict):
@@ -882,6 +896,18 @@ async def slip_generate(force: bool = False, date: Optional[str] = None, _: dict
 
     async def _runner():
         try:
+            # On every (force) generate, also run a self-heal pass over the schedule so
+            # legacy mistagged picks and orphan schedule entries are auto-fixed before
+            # we try to build a new slip.
+            try:
+                from fixture_sync_service import self_heal_bad_data
+                heal = await self_heal_bad_data(db, [date_str])
+                if heal["mistagged_dropped"] or heal["orphans_reset"]:
+                    logger.info("Self-heal on %s: dropped=%d orphans_reset=%d",
+                                date_str, heal["mistagged_dropped"], heal["orphans_reset"])
+            except Exception as e:
+                logger.warning("Self-heal step failed (non-fatal): %s", e)
+
             settings_doc = await settings_col.find_one({"_id": "main"}, {"_id": 0})
             settings = Settings(**settings_doc) if settings_doc else Settings()
             picks, rejections, total = await run_pipeline(date_str, settings, db=db)
