@@ -279,6 +279,32 @@ async def get_head_to_head(db, home_team_id: int, away_team_id: int, last_n: int
 
 # ---------- top-level: enrich a fixture ----------
 
+async def fetch_fixtures_for_league_date(db, league_name: str, date_str: str) -> List[Dict]:
+    """Fetch ALL fixtures for a league on a given date — schedule only, no odds.
+
+    Cached for 30 min so background syncs are cheap. Returns API-Football's raw
+    fixture objects so the caller can extract teams/kickoff/league details.
+    """
+    league_id = LEAGUE_MAP.get(league_name)
+    if not league_id:
+        return []
+    cache_key = f"schedule_{league_id}_{date_str}"
+    cached = await _cache_get(db, cache_key, max_age_seconds=30 * 60)
+    if cached is not None:
+        return cached.get("fixtures", [])
+    try:
+        body = await _get("/fixtures", params={
+            "league": league_id, "season": SEASON, "date": date_str,
+        })
+    except APIFootballError as e:
+        logger.warning("fetch_fixtures_for_league_date(%s, %s) failed: %s",
+                       league_name, date_str, e)
+        return []
+    fixtures = body.get("response", []) or []
+    await _cache_put(db, cache_key, {"fixtures": fixtures})
+    return fixtures
+
+
 async def find_fixture_by_teams(db, league_name: str, home: str, away: str, date_str: str) -> Optional[Dict]:
     """Find a specific fixture (by team names + date) in API-Football.
     Returns the full /fixtures response item, or None.

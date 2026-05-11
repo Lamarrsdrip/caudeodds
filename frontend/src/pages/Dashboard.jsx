@@ -4,6 +4,7 @@ import AppHeader from "@/components/AppHeader";
 import EmrizFooter from "@/components/EmrizFooter";
 import DailySlip from "@/components/DailySlip";
 import PushOptIn from "@/components/PushOptIn";
+import UpcomingFixtures from "@/components/UpcomingFixtures";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { Calendar, Clock, ShieldCheck } from "lucide-react";
@@ -158,6 +159,11 @@ export default function Dashboard() {
             ) : (
               <DailySlip slip={slip} locked={locked} onSubscribe={locked ? () => (window.location.href = "/subscription") : null} />
             )}
+
+            {/* Live fixture schedule — never empty, even before odds arrive */}
+            <div className="mt-8">
+              <UpcomingFixtures />
+            </div>
           </div>
         )}
 

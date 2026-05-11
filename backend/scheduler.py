@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -152,6 +152,26 @@ async def _run_autosettle(db):
         logger.exception("Auto-settle failed: %s", e)
 
 
+async def _run_fixture_sync(db):
+    """Fixture-first pipeline: schedule sync + odds enrichment + AI for newly priced.
+
+    Runs every 15 min via APScheduler so tomorrow's fixtures appear on the
+    dashboard hours before bookmaker odds — and flip from 'Waiting for Odds'
+    → 'Analyzing' → 'Ready' automatically as odds drop in.
+    """
+    try:
+        from fixture_sync_service import run_full_cycle
+        stats = await run_full_cycle(db)
+        for d, s in stats.items():
+            logger.info(
+                "Fixture-sync %s: schedule new=%d updated=%d · odds priced=%d · AI ready=%d rejected=%d",
+                d, s["schedule"]["new"], s["schedule"]["updated"],
+                s["odds"]["priced"], s["ai"]["ready"], s["ai"]["rejected"],
+            )
+    except Exception as e:
+        logger.exception("Fixture-sync failed: %s", e)
+
+
 async def configure_scheduler(db) -> dict:
     """Read admin config and (re)schedule the daily + auto-settle jobs."""
     global _scheduler
@@ -220,9 +240,26 @@ async def configure_scheduler(db) -> dict:
         )
         logger.info("Tomorrow-pregen scheduled daily at 22:00 UTC")
 
+    # Fixture-sync job: every 15 minutes pull tomorrow's schedule, match with
+    # any newly published odds, and run AI on freshly-priced fixtures. This is
+    # what makes the dashboard show 'Waiting for Odds' early instead of empty.
+    if _scheduler.get_job("fixture_sync"):
+        _scheduler.remove_job("fixture_sync")
+    _scheduler.add_job(
+        _run_fixture_sync,
+        IntervalTrigger(minutes=15),
+        id="fixture_sync",
+        args=[db],
+        replace_existing=True,
+        misfire_grace_time=600,
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=15),
+    )
+    logger.info("Fixture-sync scheduled every 15 minutes")
+
     daily_next = _scheduler.get_job("daily_pipeline").next_run_time if _scheduler.get_job("daily_pipeline") else None
     settle_next = _scheduler.get_job("autosettle").next_run_time if _scheduler.get_job("autosettle") else None
     pregen_next = _scheduler.get_job("tomorrow_pregen").next_run_time if _scheduler.get_job("tomorrow_pregen") else None
+    fxsync_next = _scheduler.get_job("fixture_sync").next_run_time if _scheduler.get_job("fixture_sync") else None
     return {
         "daily_enabled": enabled, "daily_next": str(daily_next),
         "daily_hour_utc": hour, "daily_minute_utc": minute,
@@ -230,6 +267,7 @@ async def configure_scheduler(db) -> dict:
         "autosettle_interval_hours": autosettle_hours,
         "autosettle_next": str(settle_next),
         "tomorrow_pregen_next": str(pregen_next),
+        "fixture_sync_next": str(fxsync_next),
     }
 
 

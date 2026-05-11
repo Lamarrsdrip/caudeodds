@@ -33,6 +33,7 @@ export const api = {
   // Public
   publicConfig: () => client.get("/public/config").then(r => r.data),
   publicRoi: (days = 30) => client.get(`/public/roi?days=${days}`).then(r => r.data),
+  scheduleUpcoming: (date) => client.get(date ? `/schedule/upcoming?date=${date}` : `/schedule/upcoming?days=3`).then(r => r.data),
   slipToday: () => client.get("/slip/today").then(r => r.data),
   // Auth
   register: (payload) => client.post("/auth/register", payload).then(r => r.data),
@@ -69,4 +70,5 @@ export const api = {
   adminApifootballPreflight: () => client.get(`/admin/apifootball/preflight`).then(r => r.data),
   adminApibasketballPreflight: () => client.get(`/admin/apibasketball/preflight`).then(r => r.data),
   adminSettleNow: () => client.post(`/admin/settle/now`).then(r => r.data),
+  adminScheduleSync: () => client.post(`/admin/schedule/sync`).then(r => r.data),
 };

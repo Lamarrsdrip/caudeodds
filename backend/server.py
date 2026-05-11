@@ -370,6 +370,49 @@ async def auth_logout(user: dict = Depends(get_current_user_dep)):
 
 # ------------------ Daily Slip ------------------
 
+# Schedule collection — fixture-first pipeline (separated from picks)
+schedule_col = db.claudeodd_schedule
+
+
+@api.get("/schedule/upcoming")
+async def schedule_upcoming(date: Optional[str] = None, days: int = 3):
+    """Public-facing fixture schedule. Shows ALL upcoming matches even before
+    bookmakers publish odds — solves the 'empty dashboard until evening' UX
+    problem. Each fixture carries a status badge:
+       waiting   → match scheduled, odds not yet posted
+       analyzing → odds available, AI is processing
+       ready     → AI complete, pick exists (slip-eligible)
+       rejected  → AI ran but rejected (no-bet / failed gates)
+
+    Query params:
+      date  — single YYYY-MM-DD (default: today). When set, `days` is ignored.
+      days  — when no date, return next N days (max 7) starting today.
+    """
+    from fixture_sync_service import get_upcoming_schedule
+    if date:
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+        return await get_upcoming_schedule(db, date)
+    days_in = 3 if days is None else int(days)
+    days_in = max(1, min(days_in, 7))
+    from datetime import timedelta
+    today = datetime.now(timezone.utc).date()
+    out = []
+    for i in range(days_in):
+        d = (today + timedelta(days=i)).strftime("%Y-%m-%d")
+        out.append(await get_upcoming_schedule(db, d))
+    return {"days": days_in, "schedule": out}
+
+
+@api.post("/admin/schedule/sync")
+async def admin_schedule_sync(_: dict = Depends(admin_required)):
+    """Trigger the fixture-first pipeline on demand (admin). Returns counts."""
+    from fixture_sync_service import run_full_cycle
+    return await run_full_cycle(db)
+
+
 async def _build_slip_for_date(date_str: str, cfg: dict):
     """Build the slip + quality gate result for a given date.
 

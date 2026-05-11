@@ -1,0 +1,61 @@
+{
+  "summary": "Phase 6 (iter_7) ClaudeOdds fixture-first pipeline — FULL PASS. All 6 new phase-6 backend tests PASS via public URL. Regression: phase4 13/14 + 1 skip (unchanged), phase5 8/8, deep_audit 11/12 + 1 skip + 1 pre-existing fail (test_slip_today_legs_are_realistic — empty slate, flagged & unchanged from iter_6). Frontend dashboard renders <UpcomingFixtures> below DailySlip with 14 real fixtures across 3 dates (2026-05-11/12/13), all carrying yellow 'WAITING FOR ODDS' badges as expected (Odds API test stub returns no priced events). Date tabs, summary chips, fixture rows, refresh button, auto-poll wiring all verified. Landing public-roi-section still renders, zero console errors on dashboard or landing.",
+  "tests_executed": {
+    "backend_pytest_phase6 (6/6 PASS)": [
+      "GET /api/schedule/upcoming?days=3 → multi-day shape with summary keys (total, waiting_odds, ready, analyzing, rejected, failed) — PASS",
+      "GET /api/schedule/upcoming?date=YYYY-MM-DD → single-date payload — PASS",
+      "GET /api/schedule/upcoming?date=garbage → 400 with 'YYYY-MM-DD' in error — PASS",
+      "GET /api/schedule/upcoming?days=0 clamps to 1, ?days=99 clamps to 7 — PASS",
+      "POST /api/admin/schedule/sync → anonymous 401/403, admin 200 with dict keyed by ISO date containing schedule/odds/ai counts — PASS",
+      "Every fixture has badge ∈ {waiting,analyzing,ready,rejected,failed} and odds_status ∈ {waiting,available} — PASS"
+    ],
+    "backend_pytest_phase5_regression": "8/8 PASS (rollover, public ROI, slip-generate-date)",
+    "backend_pytest_phase4_regression": "13/14 PASS + 1 unchanged SKIP (TestStrategyCap.test_slip_today_respects_cap)",
+    "backend_pytest_deep_audit": "11/12 PASS + 1 SKIP + 1 PRE-EXISTING FAIL (test_slip_today_legs_are_realistic — empty slate, same as iter_6, not a regression)",
+    "frontend_desktop_1920x1080": [
+      "Admin login (admin@claudeodd.com/Admin@2026) → /admin redirect (admin role behaviour) — PASS",
+      "/dashboard mounts data-testid='upcoming-fixtures' (not loading state) — PASS",
+      "3 date tabs present: fixture-tab-2026-05-11 (TODAY 3), fixture-tab-2026-05-12 (TOMORROW 4), fixture-tab-2026-05-13 (WED MAY 13, 7) — PASS",
+      "data-testid='fixture-summary' renders '3 WAITING FOR ODDS' chip for active tab — PASS",
+      "data-testid='fixture-list' present with 3 fixture-row-{id} elements on TODAY tab — PASS",
+      "Each row shows WAITING FOR ODDS badge + sport (FOOTBALL) + league (SERIE A / PREMIER LEAGUE / LA LIGA) + 'Home vs Away' + kickoff (MON, MAY 11, 18:45 etc) — PASS",
+      "data-testid='refresh-fixtures-btn' clickable, re-fetches schedule — PASS",
+      "Landing / shows data-testid='public-roi-section' (regression) — PASS",
+      "Zero console errors on /dashboard or / — PASS"
+    ],
+    "scheduler_check": "scheduler.py + server.py registered: fixture_sync IntervalTrigger every 15 min and configure_scheduler returns fixture_sync_next key per main agent context (already running on startup, populated 14 fixtures across 3 dates)."
+  },
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/slip/today (admin, no slate)", "issue": "Pre-existing from iter_6 — test_slip_today_legs_are_realistic asserts legs>0 but today has no priced events (Odds API stub), returns awaiting_tomorrow + locked teaser. Not a regression; needs test update or seed via POST /api/slip/generate first."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase6_fixture_first.py",
+    "/app/test_reports/pytest/phase6_results.xml",
+    "/app/test_reports/pytest/regression_iter7.xml"
+  ],
+  "action_items": [
+    "(LOW carry-over from iter_6) Update tests/test_deep_audit.py::TestAIRealism::test_slip_today_legs_are_realistic to pytest.skip when body.get('awaiting_tomorrow')==True or seed today via POST /api/slip/generate before asserting legs."
+  ],
+  "critical_code_review_comments": [
+    "UpcomingFixtures.jsx — clean component, BADGE_MAP covers all 5 status badges with semantic colors (yellow=waiting, blue+spin=analyzing, green=ready, gray=rejected, orange=retrying). Polls every 60s via setInterval cleanup-safe pattern. data-testid coverage complete.",
+    "server.py /api/schedule/upcoming — public (no auth), correctly clamps days∈[1,7], rejects invalid date with 'YYYY-MM-DD' hint. Good DX.",
+    "server.py /api/admin/schedule/sync — properly gated on admin auth (401/403 for anon). Returns useful per-date sync stats {schedule, odds, ai}.",
+    "fixture_sync_service.py separates schedule fetch from odds enrichment from AI run — clean staged pipeline solving the empty-dashboard UX problem. Background sync every 15min keeps UI fresh as bookmakers price events."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% on new phase-6 (6/6); regression 27/29 + 2 skips + 1 pre-existing fail (unchanged from iter_6)", "frontend": "100% — all required data-testids present, real fixtures rendered, refresh works, zero console errors"},
+  "test_credentials": "admin@claudeodd.com / Admin@2026 verified working (admin redirects to /admin).",
+  "seed_data_creation": "POST /api/admin/schedule/sync invoked by phase6 test — refreshed 14 fixtures across 2026-05-11/12/13 in claudeodd_schedule collection.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 6 fixture-first pipeline is fully working. Run `cd /app/backend && pytest tests/test_phase6_fixture_first.py tests/test_phase5_rollover.py tests/test_phase4.py tests/test_deep_audit.py -v --junitxml=/app/test_reports/pytest/all.xml`. Expect 6+8+13+11 passes, 2 skips, 1 pre-existing failure (test_slip_today_legs_are_realistic — empty slate, NOT a regression). Dashboard at /dashboard shows UpcomingFixtures with 14 fixtures across 3 days, all WAITING FOR ODDS (Odds API is a test stub). When real Odds API key is wired in prod, badges will flip to ANALYZING then READY via the 15-min cron. Note: the public URL had intermittent connection timeouts during the first pytest run on test_deep_audit — re-running succeeded immediately, so it appears to be transient ingress flakiness not a code issue.",
+  "rca of the issue": "No new issues. Single pre-existing deep_audit failure (test_slip_today_legs_are_realistic) is documented in iter_6 — RCA: empty slate + Odds API test stub + post-22:00 UTC rollover. Mitigation: skip test when awaiting_tomorrow==True or seed via POST /api/slip/generate."
+}

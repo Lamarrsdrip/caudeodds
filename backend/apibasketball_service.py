@@ -99,6 +99,35 @@ async def _cache_put(db, key: str, payload) -> None:
     )
 
 
+async def fetch_fixtures_for_league_date(db, league_name: str, date_str: str) -> List[Dict]:
+    """Fetch ALL basketball games for a league on a date — schedule only.
+
+    Cached 30 min so background syncs are cheap. Returns raw API-Basketball
+    response items.
+    """
+    league_id = LEAGUE_MAP.get(league_name)
+    if not league_id:
+        return []
+    cache_key = f"schedule_{league_id}_{date_str}"
+    cached = await _cache_get(db, cache_key, max_age_seconds=30 * 60)
+    if cached is not None:
+        # Cache may have been put as raw list — handle both shapes for backwards compat.
+        if isinstance(cached, list):
+            return cached
+        return cached.get("games", [])
+    try:
+        body = await _get("/games", params={
+            "league": league_id, "season": SEASON, "date": date_str,
+        })
+    except APIBasketballError as e:
+        logger.warning("fetch_fixtures_for_league_date(%s, %s) failed: %s",
+                       league_name, date_str, e)
+        return []
+    games = body.get("response", []) or []
+    await _cache_put(db, cache_key, {"games": games})
+    return games
+
+
 async def _all_teams_for_league(db, league_id: int) -> List[Dict]:
     cache_key = f"teams_{league_id}_{SEASON}"
     cached = await _cache_get(db, cache_key, max_age_seconds=7 * 24 * 3600)
