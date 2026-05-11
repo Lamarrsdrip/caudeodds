@@ -52,6 +52,25 @@ Users place real money on these picks. Every fixture, price, calculation, and pr
 - **Tomorrow pre-gen cron** — scheduler.py adds `_run_tomorrow_pregen` job running daily at 22:00 UTC so tomorrow's slip is ready the moment today's slate ends.
 - **Admin Pre-Gen Tomorrow** button on `/admin/predictions` → `POST /api/slip/generate?date=tomorrow`. Endpoint also accepts explicit `YYYY-MM-DD` dates with proper 400 on invalid input.
 
+### Phase 7A — Admin hardening + persistence + email plumbing (2026-05-11)
+- **CRITICAL FIX — admin password persistence**: `seed_admin` in `auth.py` previously re-wrote the admin's password to `ADMIN_PASSWORD` env var on every restart whenever the hash didn't match. Now it only seeds on first run; existing admin passwords are NEVER overwritten. Emergency recovery via `ADMIN_FORCE_PASSWORD_RESET=1` env var. Verified end-to-end: change password → restart backend → new password works, old password rejected.
+- **Password change** endpoint `POST /api/auth/password/change` + **force-logout**: JWT now carries `password_version` claim; `get_current_user` rejects tokens whose `pwv` is older than the user's current version. Password change bumps version, instantly invalidating every other open session. Rotated token returned to caller so the originating tab stays signed in.
+- **SMTP service** (`email_service.py`): smtplib + ssl based, no extra deps. Classifies errors into `MISSING_CONFIG / WRONG_PASSWORD / INVALID_APP_PASSWORD / SMTP_BLOCKED / TLS_ERROR / TIMEOUT / HOST_NOT_FOUND / BAD_RECIPIENT / BAD_SENDER / UNKNOWN` for actionable admin UX.
+- **`POST /api/admin/smtp/test`** verifies credentials without sending. **`POST /api/admin/smtp/send-test`** delivers a real test email and persists to `db.email_logs`.
+- **Welcome email** fire-and-forget on `POST /api/auth/register` — never blocks registration even if SMTP is down/missing, always logged to `db.email_logs`.
+- **Password-changed confirmation email** sent on successful `/auth/password/change`.
+- **Login activity log** (`db.login_activity`): every login attempt (success + failure) recorded with `email, ip, ua, success, reason, ts`. Endpoints `GET /api/admin/activity` (all users) and `GET /api/auth/activity` (self).
+- **Admin Security Center** at `/admin/security`: Change Password card, SMTP test/send card with Connected ✅ / Failed ❌ status + clear error chip, Email Delivery Log table, Login Activity table.
+
+### Phase 7B — Email Center + advanced security (Backlog, not yet built)
+- Bulk Email Center: send to all users / filtered selection / saved templates (welcome, announcement, maintenance, promotion)
+- Login notification email on every successful login (rate-limited to 1/hour)
+- Suspicious-login detection (new IP/country/UA → email user)
+- Forgot/reset password flow (token via email)
+- Rate limiting on /auth/register (per IP)
+- CSP / Content-Security-Policy + helmet-equivalent headers
+- AES-encrypted SMTP password storage in admin_config (currently plaintext, only admin can read)
+
 ### Phase 6 — Fixture-first pipeline / "Never Empty" dashboard (2026-05-10)
 - **Problem**: dashboard appeared "broken" when bookmakers hadn't posted tomorrow's odds yet (typically before 18:00 UTC), even though scheduled matches existed.
 - **Solution**: separated MATCH SCHEDULE (always available days ahead from API-Football/API-Basketball) from BETTING ODDS (drip-fed by bookmakers throughout the day).

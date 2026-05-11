@@ -314,11 +314,11 @@ async def auth_register(payload: RegisterPayload):
     token = create_access_token(user_id, email, "user")
 
     # Fire-and-forget welcome email (does not block registration on SMTP outages).
+    # We always invoke send_email even when SMTP is unconfigured so the attempt
+    # is auditable in /api/admin/emails/logs (MISSING_CONFIG classification).
     async def _send_welcome():
         try:
             cfg_doc = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
-            if not cfg_doc.get("smtp_host"):
-                return
             from email_service import send_email, template_welcome
             subject, html = template_welcome(payload.name.strip())
             await send_email(db, cfg_doc, email, subject, html, kind="welcome",
