@@ -885,9 +885,20 @@ async def slip_generate(force: bool = False, date: Optional[str] = None, _: dict
             settings_doc = await settings_col.find_one({"_id": "main"}, {"_id": 0})
             settings = Settings(**settings_doc) if settings_doc else Settings()
             picks, rejections, total = await run_pipeline(date_str, settings, db=db)
+            # NON-DESTRUCTIVE force re-generate: only replace existing picks if the
+            # new run produced at least one valid pick. Prevents the "force regenerate
+            # wiped today's slip" UX bug when Odds API is rate-limited or returns 0.
+            kept_old = False
             if force:
-                await picks_col.delete_many({"date": date_str})
-                await rej_col.delete_many({"date": date_str})
+                if picks:
+                    await picks_col.delete_many({"date": date_str})
+                    await rej_col.delete_many({"date": date_str})
+                else:
+                    kept_old = True
+                    logger.warning(
+                        "Force re-generate for %s produced 0 picks — keeping existing slip intact",
+                        date_str,
+                    )
             if picks:
                 await picks_col.insert_many([p.model_dump() for p in picks])
             if rejections:
@@ -904,8 +915,9 @@ async def slip_generate(force: bool = False, date: Optional[str] = None, _: dict
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "picks": len(picks), "rejected": len(rejections),
                 "fixtures_analyzed": total,
+                "kept_old": kept_old,
             }})
-            logger.info("Pipeline job %s complete: picks=%d rejected=%d fx=%d", job_id, len(picks), len(rejections), total)
+            logger.info("Pipeline job %s complete: picks=%d rejected=%d fx=%d kept_old=%s", job_id, len(picks), len(rejections), total, kept_old)
         except Exception as e:
             logger.exception("Pipeline job %s failed: %s", job_id, e)
             await jobs_col.update_one({"id": job_id}, {"$set": {

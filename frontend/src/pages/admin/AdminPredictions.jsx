@@ -63,7 +63,9 @@ export default function AdminPredictions() {
             if (st.status === "completed") {
               const stPicks = st.picks ?? 0;
               const stFx = st.fixtures_analyzed ?? 0;
-              if (stPicks === 0 && stFx === 0 && date === "tomorrow") {
+              if (st.kept_old) {
+                toast.warning(`Re-run produced 0 picks — KEPT existing slip intact (no destruction). Odds API may be rate-limited; try again in a few minutes.`, { duration: 8000 });
+              } else if (stPicks === 0 && stFx === 0 && date === "tomorrow") {
                 toast.warning(`No fixtures yet for tomorrow. Bookmakers usually post tomorrow's lines after 18:00 UTC — try again later.`, { duration: 8000 });
               } else if (stPicks === 0) {
                 toast.warning(`Pipeline finished · 0 picks from ${stFx} fixtures. All rejected by EV/quality gate.`, { duration: 6000 });

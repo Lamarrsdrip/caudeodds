@@ -47,6 +47,7 @@ from rapidfuzz import fuzz
 import apifootball_service as af
 import apibasketball_service as ab
 from consensus import evaluate
+from data_engine import _enrich_one
 from filters import filter_fixtures
 from llm_engines import run_ensemble
 from models import Fixture, Pick, Settings
@@ -377,6 +378,19 @@ async def run_ai_for_new_odds(db, date_str: str, settings: Optional[Settings] = 
                 "ai_status": "rejected",
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }})
+
+    # CRITICAL — enrich kept fixtures with API-Football intel (form, injuries,
+    # h2h) so picks ship with realistic data_richness. Without this every
+    # fixture_sync-produced pick fails the dashboard's data_richness gate.
+    enrich_sem = asyncio.Semaphore(6)
+    async def _enrich(fx):
+        async with enrich_sem:
+            try:
+                return await _enrich_one(db, fx)
+            except Exception as e:
+                logger.warning("Enrichment failed for %s vs %s: %s", fx.home, fx.away, e)
+                return fx
+    kept = await asyncio.gather(*[_enrich(fx) for fx in kept])
 
     # Run ensemble concurrently (capped)
     sem = asyncio.Semaphore(8)
