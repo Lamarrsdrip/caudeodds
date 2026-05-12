@@ -574,6 +574,7 @@ async def admin_usage(_: dict = Depends(admin_required)):
     odds_cache_count = await db.odds_api_cache.count_documents({})
     af_cache_count = await db.apifootball_cache.count_documents({})
     ab_cache_count = await db.apibasketball_cache.count_documents({})
+    llm_cache_count = await db.llm_ensemble_cache.count_documents({})
 
     # Picks generated in last 7 days for cost-per-pick
     from datetime import timedelta as _td
@@ -605,6 +606,8 @@ async def admin_usage(_: dict = Depends(admin_required)):
         },
         "api_football_cache_entries": af_cache_count,
         "api_basketball_cache_entries": ab_cache_count,
+        "llm_ensemble_cache_entries": llm_cache_count,
+        "llm_cache_ttl_secs": int(os.environ.get("ENSEMBLE_CACHE_TTL", 24 * 3600)),
         "fixture_sync_runs_24h": fixture_sync_runs,
         "picks_generated_7d": picks_7d,
         "schedulers": {
@@ -612,9 +615,12 @@ async def admin_usage(_: dict = Depends(admin_required)):
             "autosettle_interval_hours": None,  # filled by config
         },
         "budget_advice": (
-            "Free tier (500 req/mo) is tight; expect breaches during heavy match days. "
-            "Recommended: the-odds-api $1/mo plan (20k req/mo). With current 30-min "
-            "fixture-sync + 60-min Odds cache, typical burn is ~50 req/day = 1,500/mo."
+            "Emergent LLM key: each fixture costs ~3 LLM calls (Research/Claude + "
+            "Quant/GPT + Reasoning/Claude). With the new 24h ensemble cache, each "
+            "fixture is analyzed at most once per day; cache hits cost $0. The "
+            "reasoning agent is now skipped for low-quality fixtures (quality<50), "
+            "saving the most expensive call on weak signals. Off-peak Odds API "
+            "cache: 60min. Recommended: the-odds-api $1/mo plan (20k req/mo)."
         ),
     }
 
@@ -1012,24 +1018,37 @@ async def slip_generate(force: bool = False, date: Optional[str] = None, _: dict
             settings_doc = await settings_col.find_one({"_id": "main"}, {"_id": 0})
             settings = Settings(**settings_doc) if settings_doc else Settings()
             picks, rejections, total = await run_pipeline(date_str, settings, db=db)
-            # NON-DESTRUCTIVE force re-generate: only replace existing picks if the
-            # new run produced at least one valid pick. Prevents the "force regenerate
-            # wiped today's slip" UX bug when Odds API is rate-limited or returns 0.
-            kept_old = False
-            if force:
-                if picks:
-                    await picks_col.delete_many({"date": date_str})
-                    await rej_col.delete_many({"date": date_str})
+
+            # ── APPEND-ONLY UPSERT ─────────────────────────────────────────
+            # The platform now follows a strict NON-DESTRUCTIVE prediction
+            # lifecycle: every pick is upserted by its natural key
+            # (date + match + kickoff). Existing predictions stay in the DB
+            # until the match is settled by the auto-settlement service.
+            # Force Generate ONLY adds new fixtures or refreshes the analysis
+            # for already-priced ones; it NEVER wipes history.
+            inserted_new = 0
+            refreshed = 0
+            for p in picks:
+                pd = p.model_dump()
+                key = {"date": pd["date"], "match": pd["match"], "kickoff": pd["kickoff"]}
+                existing = await picks_col.find_one(key, {"_id": 0, "id": 1, "status": 1})
+                if existing:
+                    # Preserve existing pick.id + status so settlement history doesn't break
+                    pd["id"] = existing["id"]
+                    pd["status"] = existing.get("status", pd.get("status", "pending"))
+                    pd["refreshed_at"] = datetime.now(timezone.utc).isoformat()
+                    await picks_col.update_one(key, {"$set": pd})
+                    refreshed += 1
                 else:
-                    kept_old = True
-                    logger.warning(
-                        "Force re-generate for %s produced 0 picks — keeping existing slip intact",
-                        date_str,
-                    )
-            if picks:
-                await picks_col.insert_many([p.model_dump() for p in picks])
-            if rejections:
-                await rej_col.insert_many([r.model_dump() for r in rejections])
+                    pd["created_at"] = datetime.now(timezone.utc).isoformat()
+                    await picks_col.insert_one(pd)
+                    inserted_new += 1
+
+            # Rejections are informational — append all (never delete history).
+            for r in rejections:
+                rd = r.model_dump()
+                rd.setdefault("created_at", datetime.now(timezone.utc).isoformat())
+                await rej_col.insert_one(rd)
             await runs_col.update_one(
                 {"_id": date_str},
                 {"$set": {"date": date_str, "rejected_count": len(rejections),
@@ -1042,9 +1061,12 @@ async def slip_generate(force: bool = False, date: Optional[str] = None, _: dict
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "picks": len(picks), "rejected": len(rejections),
                 "fixtures_analyzed": total,
-                "kept_old": kept_old,
+                "inserted_new": inserted_new,
+                "refreshed_existing": refreshed,
+                "kept_old": (inserted_new == 0 and refreshed == 0),
             }})
-            logger.info("Pipeline job %s complete: picks=%d rejected=%d fx=%d kept_old=%s", job_id, len(picks), len(rejections), total, kept_old)
+            logger.info("Pipeline job %s complete (append-only): new=%d refreshed=%d rejected=%d fx=%d",
+                        job_id, inserted_new, refreshed, len(rejections), total)
         except Exception as e:
             logger.exception("Pipeline job %s failed: %s", job_id, e)
             await jobs_col.update_one({"id": job_id}, {"$set": {

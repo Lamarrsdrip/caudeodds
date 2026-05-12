@@ -396,7 +396,7 @@ async def run_ai_for_new_odds(db, date_str: str, settings: Optional[Settings] = 
     sem = asyncio.Semaphore(8)
     async def _analyze(fx):
         async with sem:
-            return fx, await run_ensemble(fx)
+            return fx, await run_ensemble(fx, db=db)
     results = await asyncio.gather(*[_analyze(f) for f in kept], return_exceptions=True)
 
     ready_count = rejected_count = failed_count = 0
@@ -479,7 +479,7 @@ async def self_heal_bad_data(db, dates: List[str]) -> Dict:
 
     Returns counts so admin can see how much was healed.
     """
-    healed_mistagged = healed_orphans = 0
+    healed_mistagged = healed_orphans = stuck_analyzing = deadline_finalized = 0
 
     # ── A) Drop mistagged picks ────────────────────────────────────────────
     for d in dates:
@@ -523,7 +523,70 @@ async def self_heal_bad_data(db, dates: List[str]) -> Dict:
                 logger.info("Self-heal: reset orphan schedule %s (pick_id=%s missing)",
                             s["id"], s["pick_id"])
 
-    return {"mistagged_dropped": healed_mistagged, "orphans_reset": healed_orphans}
+    # ── C) Recover STUCK-IN-ANALYZING entries ──────────────────────────────
+    # If a schedule entry has been in `ai_status='analyzing'` for >15 min the
+    # original analysis task crashed mid-flight. Reset to `pending` so the
+    # next cron tick (or the immediate retry below) processes it again.
+    now_dt = datetime.now(timezone.utc)
+    stuck_threshold = (now_dt - timedelta(minutes=15)).isoformat()
+    for d in dates:
+        cursor = db[SCHEDULE_COLLECTION].find({
+            "date": d,
+            "ai_status": "analyzing",
+            "updated_at": {"$lt": stuck_threshold},
+        }, {"_id": 0, "id": 1})
+        async for s in cursor:
+            await db[SCHEDULE_COLLECTION].update_one(
+                {"id": s["id"]},
+                {"$set": {"ai_status": "pending",
+                          "updated_at": now_dt.isoformat()}},
+            )
+            stuck_analyzing += 1
+            logger.info("Self-heal: recovered stuck-analyzing schedule %s", s["id"])
+
+    # ── D) 3-HOUR KICKOFF DEADLINE ENFORCER ────────────────────────────────
+    # No fixture should be 'waiting' or 'pending' analysis within 3 hours of
+    # kickoff. If it still is, it means odds never landed OR analysis failed.
+    # We finalize these into one of two terminal states so the UI never gets
+    # stuck on "Analyzing…" forever:
+    #   • odds_status='waiting'  → ai_status='no_prediction' (we never got odds)
+    #   • odds_status='available' + ai_status in {pending, analyzing}
+    #                            → trigger immediate analysis attempt or mark
+    #                              'no_prediction' if even that fails
+    deadline_iso = (now_dt + timedelta(hours=3)).isoformat()
+    for d in dates:
+        cursor = db[SCHEDULE_COLLECTION].find({
+            "date": d,
+            "kickoff": {"$lte": deadline_iso},
+            "ai_status": {"$in": ["pending", "analyzing"]},
+        }, {"_id": 0, "id": 1, "odds_status": 1, "kickoff": 1, "home": 1, "away": 1})
+        stale = await cursor.to_list(200)
+        for s in stale:
+            # If odds never arrived, give up — mark no_prediction
+            if s.get("odds_status") != "available":
+                await db[SCHEDULE_COLLECTION].update_one(
+                    {"id": s["id"]},
+                    {"$set": {"ai_status": "no_prediction",
+                              "updated_at": now_dt.isoformat(),
+                              "no_prediction_reason": "odds_never_published"}},
+                )
+                deadline_finalized += 1
+                logger.info("Deadline-enforce: %s vs %s — odds never arrived, marked no_prediction",
+                            s.get("home"), s.get("away"))
+            else:
+                # Odds are there but somehow we never finished AI. Reset to
+                # pending — the immediate run_ai_for_new_odds() in the same
+                # cycle will process it (or downstream cron will).
+                await db[SCHEDULE_COLLECTION].update_one(
+                    {"id": s["id"]},
+                    {"$set": {"ai_status": "pending",
+                              "updated_at": now_dt.isoformat()}},
+                )
+
+    return {"mistagged_dropped": healed_mistagged,
+            "orphans_reset": healed_orphans,
+            "stuck_analyzing_recovered": stuck_analyzing,
+            "deadline_finalized": deadline_finalized}
 
 
 async def run_full_cycle(db, dates: Optional[List[str]] = None) -> Dict:
@@ -560,15 +623,43 @@ async def get_upcoming_schedule(db, date_str: str) -> Dict:
     ).sort("kickoff", 1).to_list(500)
 
     summary = {"total": len(docs), "waiting_odds": 0, "ready": 0,
-               "analyzing": 0, "rejected": 0, "failed": 0}
+               "analyzing": 0, "rejected": 0, "failed": 0,
+               "no_prediction": 0, "live": 0, "completed": 0}
     fixtures = []
+    now_utc = datetime.now(timezone.utc)
     for d in docs:
         odds_status = d.get("odds_status", "waiting")
         ai_status = d.get("ai_status", "pending")
-        # Public status badge: simpler 3-state view
-        if ai_status == "ready":
+
+        # ── Lifecycle classification based on kickoff time ──────────────
+        # "live": kickoff already passed but not yet >3h ago
+        # "completed": kickoff >3h ago (settlement service grades these)
+        ko_iso = d.get("kickoff", "")
+        lifecycle = None
+        if ko_iso:
+            try:
+                ko = datetime.fromisoformat(ko_iso.replace("Z", "+00:00"))
+                age_min = (now_utc - ko).total_seconds() / 60.0
+                if 0 <= age_min < 180:
+                    lifecycle = "live"
+                elif age_min >= 180:
+                    lifecycle = "completed"
+            except Exception:
+                pass
+
+        # Public status badge — 7 states
+        if lifecycle == "completed":
+            badge = "completed"
+            summary["completed"] += 1
+        elif lifecycle == "live":
+            badge = "live"
+            summary["live"] += 1
+        elif ai_status == "ready":
             badge = "ready"
             summary["ready"] += 1
+        elif ai_status == "no_prediction":
+            badge = "no_prediction"
+            summary["no_prediction"] += 1
         elif odds_status == "waiting":
             badge = "waiting"
             summary["waiting_odds"] += 1
@@ -598,6 +689,8 @@ async def get_upcoming_schedule(db, date_str: str) -> Dict:
             "badge": badge,
             "odds_status": odds_status,
             "ai_status": ai_status,
+            "lifecycle": lifecycle,
+            "no_prediction_reason": d.get("no_prediction_reason"),
             "has_pick": bool(d.get("pick_id")),
         })
 

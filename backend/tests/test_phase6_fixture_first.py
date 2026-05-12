@@ -78,7 +78,8 @@ def test_fixture_status_badges_present():
     """Every fixture in the schedule must carry a recognised badge."""
     r = requests.get(f"{BASE}/api/schedule/upcoming?days=3", timeout=15)
     assert r.status_code == 200
-    valid_badges = {"waiting", "analyzing", "ready", "rejected", "failed"}
+    valid_badges = {"waiting", "analyzing", "ready", "rejected", "failed",
+                    "no_prediction", "live", "completed"}
     for day in r.json()["schedule"]:
         for fx in day["fixtures"]:
             assert fx["badge"] in valid_badges, f"Unknown badge: {fx['badge']}"

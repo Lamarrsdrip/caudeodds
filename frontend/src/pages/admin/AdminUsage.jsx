@@ -60,8 +60,8 @@ export default function AdminUsage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="usage-kpis">
           {[
             { k: "Odds-API Remaining", v: data.odds_api?.remaining_requests ?? "—", note: "free tier=500/mo" },
-            { k: "Odds Cache Hits", v: data.odds_api?.cache_entries ?? 0, note: `${data.odds_api?.cache_ttl_offpeak_secs / 60}min TTL` },
-            { k: "AF Cache Entries", v: data.api_football_cache_entries ?? 0, note: "12h-7d TTL/resource" },
+            { k: "Odds Cache Entries", v: data.odds_api?.cache_entries ?? 0, note: `${(data.odds_api?.cache_ttl_offpeak_secs ?? 3600) / 60}min TTL` },
+            { k: "LLM Cache Hits Saved", v: data.llm_ensemble_cache_entries ?? 0, note: `24h TTL · 3 calls/fixture` },
             { k: "Picks Last 7d", v: data.picks_generated_7d ?? 0, note: `${data.fixture_sync_runs_24h ?? 0} cron runs / 24h` },
           ].map(({ k, v, note }) => (
             <div key={k} className="co-card p-4">

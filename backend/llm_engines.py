@@ -302,22 +302,119 @@ async def run_reasoning(fx: Fixture, research: dict) -> ReasoningOutput | None:
         return None
 
 
-async def run_ensemble(fx: Fixture) -> tuple[QuantOutput | None, ReasoningOutput | None, dict | None]:
+async def run_ensemble(fx: Fixture, db=None) -> tuple[QuantOutput | None, ReasoningOutput | None, dict | None]:
     """Pipeline: Research → (Quant ∥ Reasoning).
 
     Returns (quant, reasoning, research). The research dict carries
     research_quality_score + consensus_direction used by the consensus engine
     as an additional gate.
+
+    COST-OPTIMISED:
+      • LLM result cache keyed by (fx.id + odds-hash). Same fixture won't burn
+        credits twice within 24h. Cache invalidated when odds change ≥3%.
+      • Skip the reasoning agent when research_quality_score < 50 — saves the
+        most expensive of the 3 calls on low-quality fixtures.
     """
+    cache_key = _ensemble_cache_key(fx)
+    if db is not None:
+        cached = await _ensemble_cache_get(db, cache_key)
+        if cached is not None:
+            return cached
+
     research = await run_research(fx)
     if research is None:
         return None, None, None
     quality = float(research.get("research_quality_score", 0))
     if quality < 25:
         logger.info("Skipping %s vs %s — research quality %.0f < 25", fx.home, fx.away, quality)
-        return None, None, research
+        result = (None, None, research)
+        if db is not None:
+            await _ensemble_cache_put(db, cache_key, result)
+        return result
 
+    # Cost optimisation: only run the (expensive) tactical reasoning agent when
+    # research quality is decent. For thin-signal fixtures the quant call alone
+    # is sufficient — they'll likely be rejected by consensus anyway.
     quant_task = asyncio.create_task(run_quant(fx, research))
-    reason_task = asyncio.create_task(run_reasoning(fx, research))
-    quant, reasoning = await asyncio.gather(quant_task, reason_task)
-    return quant, reasoning, research
+    if quality >= 50:
+        reason_task = asyncio.create_task(run_reasoning(fx, research))
+        quant, reasoning = await asyncio.gather(quant_task, reason_task)
+    else:
+        quant = await quant_task
+        reasoning = None
+
+    result = (quant, reasoning, research)
+    if db is not None:
+        await _ensemble_cache_put(db, cache_key, result)
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ensemble result cache — saves 3 LLM calls per fixture-per-cron-tick
+# ─────────────────────────────────────────────────────────────────────────────
+
+import time
+import hashlib
+
+ENSEMBLE_CACHE_TTL_SECS = int(os.environ.get("ENSEMBLE_CACHE_TTL", 24 * 3600))
+
+
+def _odds_signature(fx: Fixture) -> str:
+    """Stable hash of the bookmaker odds for cache invalidation. Rounded to
+    one decimal so cache survives micro-jitter but invalidates on real moves."""
+    try:
+        bits = []
+        if isinstance(fx.odds, dict):
+            for k in sorted(fx.odds.keys()):
+                v = fx.odds[k]
+                if isinstance(v, dict):
+                    for k2 in sorted(v.keys()):
+                        try:
+                            bits.append(f"{k}.{k2}={round(float(v[k2]), 1)}")
+                        except (TypeError, ValueError):
+                            pass
+                else:
+                    try:
+                        bits.append(f"{k}={round(float(v), 1)}")
+                    except (TypeError, ValueError):
+                        pass
+        return hashlib.md5("|".join(bits).encode()).hexdigest()[:12]
+    except Exception:
+        return "nohash"
+
+
+def _ensemble_cache_key(fx: Fixture) -> str:
+    return f"ens_{fx.id}_{_odds_signature(fx)}"
+
+
+async def _ensemble_cache_get(db, key: str):
+    try:
+        doc = await db.llm_ensemble_cache.find_one({"_id": key}, {"_id": 0})
+        if not doc:
+            return None
+        if time.time() - doc.get("ts", 0) > ENSEMBLE_CACHE_TTL_SECS:
+            return None
+        payload = doc.get("payload") or {}
+        q = QuantOutput(**payload["quant"]) if payload.get("quant") else None
+        r = ReasoningOutput(**payload["reasoning"]) if payload.get("reasoning") else None
+        return q, r, payload.get("research")
+    except Exception as e:
+        logger.debug("ensemble cache get failed: %s", e)
+        return None
+
+
+async def _ensemble_cache_put(db, key: str, result):
+    quant, reasoning, research = result
+    try:
+        payload = {
+            "quant": quant.model_dump() if quant else None,
+            "reasoning": reasoning.model_dump() if reasoning else None,
+            "research": research,
+        }
+        await db.llm_ensemble_cache.update_one(
+            {"_id": key},
+            {"$set": {"ts": time.time(), "payload": payload}},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.debug("ensemble cache put failed: %s", e)

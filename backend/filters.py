@@ -11,7 +11,28 @@ from models import Fixture, RejectionLog
 
 
 def _check(fx: Fixture, date_str: str) -> Tuple[bool, str | None, str | None]:
-    """Returns (keep, reason_code, reason_text)."""
+    """Returns (keep, reason_code, reason_text).
+
+    Pre-LLM gating — these checks MUST stay cheap (no API calls). Any fixture
+    that can't possibly produce a valid 2.0-5.0 slip leg should be dropped here
+    so it never burns LLM credits.
+    """
+    # 0. EARLY ODDS-RANGE DROP — saves LLM credits on fixtures that can't
+    #    produce a slip-eligible leg anyway (combined slip target is 2.0-5.0
+    #    odds; legs above 4.5 or below 1.20 are functionally useless).
+    if isinstance(fx.odds, dict):
+        h2h = fx.odds.get("1X2") or fx.odds.get("h2h") or {}
+        best_price = None
+        for v in h2h.values():
+            try:
+                fv = float(v)
+                if best_price is None or fv < best_price:
+                    best_price = fv
+            except (TypeError, ValueError):
+                pass
+        if best_price is not None and best_price > 4.5:
+            return False, "ODDS_OOR", f"Best book price {best_price:.2f} > 4.5 — unusable for 2.0-5.0 slip"
+
     # 1. Liquidity (low books are risky)
     if fx.liquidity_score < 0.45:
         return False, "LOW_LIQ", f"Liquidity score {fx.liquidity_score:.2f} < 0.45 — thin market"

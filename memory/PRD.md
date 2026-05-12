@@ -52,7 +52,30 @@ Users place real money on these picks. Every fixture, price, calculation, and pr
 - **Tomorrow pre-gen cron** — scheduler.py adds `_run_tomorrow_pregen` job running daily at 22:00 UTC so tomorrow's slip is ready the moment today's slate ends.
 - **Admin Pre-Gen Tomorrow** button on `/admin/predictions` → `POST /api/slip/generate?date=tomorrow`. Endpoint also accepts explicit `YYYY-MM-DD` dates with proper 400 on invalid input.
 
-### Phase 10 — Cost audit + home-bias guard + basketball diagnostic (2026-05-11)
+### Phase 11 — Prediction lifecycle: APPEND-ONLY, 3h kickoff deadline, stuck recovery (2026-05-11)
+
+User requirement: "NEVER delete old predictions when generating new ones. Force Generate should ONLY append/add."
+
+- **Force Generate is now strictly APPEND-ONLY**: `slip_generate` upserts picks by natural key `(date + match + kickoff)`. Existing picks are preserved (id + status retained for settlement continuity). New job stats expose `inserted_new` + `refreshed_existing`. The destructive `picks_col.delete_many({"date": date_str})` call is gone forever.
+- **3-hour kickoff deadline enforcer** in `self_heal_bad_data`: any schedule entry within 3h of kickoff that's still `pending`/`analyzing` is finalized — if odds never arrived → `ai_status='no_prediction'` with `no_prediction_reason='odds_never_published'`. If odds are there → reset to pending for immediate retry.
+- **Stuck-analyzing recovery**: schedule entries in `ai_status='analyzing'` for >15 min (process crash mid-flight) are reset to `pending` so the next cron tick retries.
+- **Lifecycle badges** in `/api/schedule/upcoming`: added `live` (kicked off, <3h ago), `completed` (>3h since kickoff), `no_prediction`. Total 8 distinct badges, each with its own colour-coded UI chip.
+- **Frontend grouping**: `UpcomingFixtures.jsx` now visually separates fixtures into Upcoming / Predictions / No Prediction / Live Now / Finished sections so users never see mixed states.
+- **6 new pytest cases** in `tests/test_phase11_lifecycle.py` verifying append-only contract, stuck recovery, deadline finalization, summary keys. Full regression: **57 passed / 1 expected skip**.
+
+
+
+User reported the Emergent Universal Key credits draining heavily. Each fixture
+previously burned **3 LLM calls** (Claude research + GPT-4o-mini quant + Claude
+reasoning) on every cron tick.
+
+Optimisations shipped:
+- **24h LLM ensemble result cache** (`db.llm_ensemble_cache`) keyed by `(fixture.id + odds_signature_hash)`. Same fixture won't re-burn credits within 24 hours; cache invalidates automatically when odds shift ≥ 0.1 on any leg. Env-tunable via `ENSEMBLE_CACHE_TTL`.
+- **Skip the (most expensive) tactical Reasoning agent when research_quality_score < 50** — saves 1 of 3 calls on every thin-signal fixture. The quant call alone is sufficient since consensus will reject these anyway.
+- **Pre-LLM odds-range drop in `filters.py`**: any fixture whose best 1X2 price exceeds 4.5 is rejected BEFORE the LLM is invoked — these can't possibly produce a 2.0-5.0 slip leg, so analyzing them wastes credits.
+- **Admin Usage dashboard** now exposes `llm_ensemble_cache_entries` so you can see how many fixtures are being served from cache (every hit = $0).
+
+**Expected savings**: on a typical day with 15 fixtures analyzed across 4 cron ticks, this drops from `15 × 4 × 3 = 180` LLM calls/day to `15 × 1 × 2.5 ≈ 37` LLM calls/day — **~80% reduction** in LLM credit burn.
 
 **Honest verdict on "does higher API spend improve win rate?": NO.** Past ~3-5% data_richness, you're paying for noise. The Odds API closing line is near-efficient; what moves win rate is **discipline** (rejecting weak edges, sticking to safer markets), not more LLM calls. So Phase 10 prioritizes cost reduction + selective discipline.
 

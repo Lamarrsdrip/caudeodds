@@ -38,7 +38,7 @@ async def run_pipeline(date_str: str, settings: Settings, db=None) -> Tuple[List
 
     async def analyze(fx):
         async with sem:
-            return fx, await run_ensemble(fx)
+            return fx, await run_ensemble(fx, db=db)
 
     results = await asyncio.gather(*[analyze(fx) for fx in kept])
 
