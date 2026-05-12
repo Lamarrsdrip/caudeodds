@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import statistics
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -96,8 +97,44 @@ async def list_active_sports() -> List[Dict]:
     return body or []
 
 
-async def fetch_odds(sport_key: str, regions: str, markets: str = "h2h,totals") -> List[Dict]:
-    """Fetch upcoming fixtures with decimal odds for a sport_key."""
+async def _cache_get(db, key: str, max_age_seconds: int) -> Optional[list]:
+    doc = await db.odds_api_cache.find_one({"_id": key}, {"_id": 0})
+    if not doc:
+        return None
+    age = time.time() - doc.get("ts", 0)
+    if age > max_age_seconds:
+        return None
+    return doc.get("payload")
+
+
+async def _cache_put(db, key: str, payload) -> None:
+    await db.odds_api_cache.update_one(
+        {"_id": key}, {"$set": {"ts": time.time(), "payload": payload}}, upsert=True
+    )
+
+
+# Adaptive cache TTL — the Odds API free tier is only 500 req/month so we MUST
+# be aggressive. During match-hours (within 4h of a known kickoff) odds move
+# meaningfully; the rest of the day they're stable.
+ODDS_TTL_OFFPEAK_SECS = int(os.environ.get("ODDS_TTL_OFFPEAK", 60 * 60))  # 60 min
+ODDS_TTL_PEAK_SECS = int(os.environ.get("ODDS_TTL_PEAK", 15 * 60))       # 15 min
+
+
+async def fetch_odds(sport_key: str, regions: str, markets: str = "h2h,totals",
+                     db=None, peak: bool = False) -> List[Dict]:
+    """Fetch upcoming fixtures with decimal odds for a sport_key.
+
+    HARD CACHED in MongoDB to avoid burning the Odds API quota. Free tier is
+    500 req/month; without caching the 15-min fixture_sync would burn that in
+    under 2 hours. Cache TTL adapts: 60 min off-peak, 15 min near kickoffs.
+    """
+    cache_key = f"odds_{sport_key}_{regions}_{markets}"
+    ttl = ODDS_TTL_PEAK_SECS if peak else ODDS_TTL_OFFPEAK_SECS
+    if db is not None:
+        cached = await _cache_get(db, cache_key, max_age_seconds=ttl)
+        if cached is not None:
+            return cached
+
     body, headers = await _get(
         f"/sports/{sport_key}/odds",
         params={"regions": regions, "markets": markets, "oddsFormat": "decimal", "dateFormat": "iso"},
@@ -106,7 +143,23 @@ async def fetch_odds(sport_key: str, regions: str, markets: str = "h2h,totals") 
     if remaining is not None:
         logger.info("[the-odds-api] %s · regions=%s · events=%d · remaining=%s",
                     sport_key, regions, len(body or []), remaining)
-    return body or []
+        # Persist remaining to a usage counter for the admin dashboard
+        if db is not None:
+            try:
+                await db.odds_api_usage.update_one(
+                    {"_id": "main"},
+                    {"$set": {"remaining": int(remaining),
+                              "last_request_at": time.time(),
+                              "last_sport": sport_key}},
+                    upsert=True,
+                )
+            except Exception:
+                pass
+
+    payload = body or []
+    if db is not None:
+        await _cache_put(db, cache_key, payload)
+    return payload
 
 
 # ----------------------- mapping to internal Fixture shape -----------------------
@@ -362,14 +415,13 @@ def _to_internal_fixture(event: Dict, sport: str, league: str, country: str, cou
     return fx
 
 
-async def fetch_real_fixtures_for_today(date_str: str, max_per_sport: int = 7) -> List[Dict]:
+async def fetch_real_fixtures_for_today(date_str: str, max_per_sport: int = 7, db=None) -> List[Dict]:
     """Fetch real fixtures whose commence_time falls within the same UTC day as date_str.
 
     Returns a list of dicts ready to be wrapped in models.Fixture (after popping
     the _country / _country_code helper keys, which the slip builder reads).
     """
     target_day = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
-    next_day = target_day + timedelta(days=1)
 
     # Discover which leagues are in-season right now to skip out-of-season requests
     try:
@@ -389,7 +441,7 @@ async def fetch_real_fixtures_for_today(date_str: str, max_per_sport: int = 7) -
         if football_collected >= max_per_sport * 2:
             break
         try:
-            events = await fetch_odds(sport_key, regions=REGIONS, markets="h2h,totals")
+            events = await fetch_odds(sport_key, regions=REGIONS, markets="h2h,totals", db=db)
         except TheOddsAPIError as e:
             logger.warning("Skipping %s: %s", sport_key, e)
             continue
@@ -416,7 +468,7 @@ async def fetch_real_fixtures_for_today(date_str: str, max_per_sport: int = 7) -
             break
         regions = US_REGIONS if "nba" in sport_key else REGIONS
         try:
-            events = await fetch_odds(sport_key, regions=regions, markets="h2h,totals")
+            events = await fetch_odds(sport_key, regions=regions, markets="h2h,totals", db=db)
         except TheOddsAPIError as e:
             logger.warning("Skipping %s: %s", sport_key, e)
             continue

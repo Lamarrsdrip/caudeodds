@@ -52,7 +52,33 @@ Users place real money on these picks. Every fixture, price, calculation, and pr
 - **Tomorrow pre-gen cron** — scheduler.py adds `_run_tomorrow_pregen` job running daily at 22:00 UTC so tomorrow's slip is ready the moment today's slate ends.
 - **Admin Pre-Gen Tomorrow** button on `/admin/predictions` → `POST /api/slip/generate?date=tomorrow`. Endpoint also accepts explicit `YYYY-MM-DD` dates with proper 400 on invalid input.
 
-### Phase 9 — Self-healing fixture pipeline (2026-05-11)
+### Phase 10 — Cost audit + home-bias guard + basketball diagnostic (2026-05-11)
+
+**Honest verdict on "does higher API spend improve win rate?": NO.** Past ~3-5% data_richness, you're paying for noise. The Odds API closing line is near-efficient; what moves win rate is **discipline** (rejecting weak edges, sticking to safer markets), not more LLM calls. So Phase 10 prioritizes cost reduction + selective discipline.
+
+**Cost optimizations**:
+- **Hard MongoDB cache on `fetch_odds`** — was previously cache-less (the free 500/mo quota would burn in ~2 hours). Now: 60-min TTL off-peak, 15-min near kickoffs, env-tunable via `ODDS_TTL_OFFPEAK` / `ODDS_TTL_PEAK`.
+- **Fixture-sync cron 15 min → 30 min** — schedule changes slowly; halving the poll halves the worst-case API burn.
+- **Frontend `UpcomingFixtures` poll 60 s → 120 s + visibility-aware** — tabs left open in background no longer hit the API.
+- **Live Odds API quota tracking** — every `fetch_odds` response writes `x-requests-remaining` to `db.odds_api_usage` for the admin dashboard.
+
+**New admin dashboards**:
+- `GET /api/admin/usage` — surfaces Odds-API remaining, cache entries, picks-per-7-days, fixture-sync runs/24h, and budget advice.
+- `GET /api/admin/apibasketball/diagnostic` — hits `/status`, `/timezone`, `/seasons`, `/leagues`, `/teams?season=current`, `/games` with your stored key and returns the LITERAL provider response (status, errors, rate-limit headers, results count, sample row) so you can see EXACTLY what's blocked.
+- New `/admin/usage` page with KPI strip + budget-advice card + "Run Diagnostic" button rendering raw endpoint results.
+
+**Match analysis engine improvements**:
+- **Home-advantage bias guard** (`consensus.py`): AWAY picks against clear home favorites (home @ ≤ 1.70) are rejected outright when data_richness < 0.6. Counter-bias 1pp EV penalty on AWAY picks across the board (since LLMs over-rate visiting form historically).
+- **Adverse line-move trap detection** (`consensus.py`): if the line drifted >15% against our pick in the last hour AND data_richness < 0.7, reject as sharp-money trap.
+- **Always-1-pick fallback** preserved via `slip_builder._select_picks` last-resort branch.
+
+**Bug fixes (Phase 10D)**:
+- `consensus.py`: `richness` was referenced before definition in my home-bias block (lint F821). Fixed by hoisting to `richness_early` at function top.
+- `odds_api_service.py`: `time` module not imported (lint F821 on `time.time()` cache stamps). Added.
+- `odds_api_service.py`: dead `next_day` variable removed (was leftover from old date-window code).
+- 7 new pytest cases in `tests/test_phase10_cost_audit.py`. Full regression: **52 passed / 1 expected skip**.
+
+
 - **Root-cause fix for "today's picks vanished" + "tomorrow's match showing under today"**: every fixture-sync cycle (and every admin Force Re-Generate) now runs `self_heal_bad_data()` first which:
   - **A) Drops mistagged picks**: any row in `claudeodd_picks` whose `kickoff` UTC-date doesn't match `pick.date` is deleted. Auto-removes legacy Celta-Vigo-on-today rows.
   - **B) Resets orphan schedule entries**: any `claudeodd_schedule` row with `ai_status='ready'` and a `pick_id` that no longer exists in `claudeodd_picks` (e.g. wiped by old destructive Force Re-Gen) gets reset to `ai_status='pending'` and `pick_id=null` so the next AI run rebuilds the missing pick.

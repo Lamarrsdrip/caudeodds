@@ -57,8 +57,17 @@ export default function UpcomingFixtures() {
 
   useEffect(() => {
     fetchData();
-    const id = setInterval(fetchData, 60_000); // poll every minute
-    return () => clearInterval(id);
+    // Poll every 2 minutes — schedule changes slowly. Skip when tab is hidden
+    // to avoid burning API quota for users who left the dashboard open.
+    const tick = () => {
+      if (document.visibilityState === "visible") fetchData();
+    };
+    const id = setInterval(tick, 120_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
   }, [fetchData]);
 
   if (loading) {

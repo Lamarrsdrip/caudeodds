@@ -72,6 +72,8 @@ export const api = {
   adminSettleNow: () => client.post(`/admin/settle/now`).then(r => r.data),
   adminScheduleSync: () => client.post(`/admin/schedule/sync`).then(r => r.data),
   adminScheduleHeal: () => client.post(`/admin/schedule/heal`).then(r => r.data),
+  adminUsage: () => client.get(`/admin/usage`).then(r => r.data),
+  adminApiBasketballDiagnostic: () => client.get(`/admin/apibasketball/diagnostic`).then(r => r.data),
   // Phase 7 — security + email
   changePassword: (current_password, new_password) =>
     client.post(`/auth/password/change`, { current_password, new_password }).then(r => r.data),

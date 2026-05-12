@@ -565,6 +565,107 @@ async def admin_schedule_heal(_: dict = Depends(admin_required)):
     return await self_heal_bad_data(db, dates)
 
 
+@api.get("/admin/usage")
+async def admin_usage(_: dict = Depends(admin_required)):
+    """API cost-monitoring dashboard. Surfaces: requests remaining, cache hit
+    rates, recent API call counts, and cost-per-prediction estimates so admin
+    can keep the platform under budget."""
+    odds_usage = await db.odds_api_usage.find_one({"_id": "main"}, {"_id": 0}) or {}
+    odds_cache_count = await db.odds_api_cache.count_documents({})
+    af_cache_count = await db.apifootball_cache.count_documents({})
+    ab_cache_count = await db.apibasketball_cache.count_documents({})
+
+    # Picks generated in last 7 days for cost-per-pick
+    from datetime import timedelta as _td
+    seven_days_ago = (datetime.now(timezone.utc) - _td(days=7)).strftime("%Y-%m-%d")
+    picks_7d = await picks_col.count_documents({"date": {"$gte": seven_days_ago}})
+
+    # Background job runs in last 24h
+    one_day_ago = (datetime.now(timezone.utc) - _td(days=1)).isoformat()
+    fixture_sync_runs = await db.claudeodd_jobs.count_documents({
+        "source": {"$in": ["cron", "tomorrow_pregen"]},
+        "started_at": {"$gte": one_day_ago},
+    })
+
+    last_remaining = odds_usage.get("remaining")
+    last_request_at = odds_usage.get("last_request_at")
+
+    # Approximate monthly burn: free tier = 500 req/mo
+    # With 30-min fixture-sync + 60-min Odds cache, we hit Odds API at most
+    # 11 sport keys × 24 hours × (1 / cache_ttl_hours) = ~264/day worst case.
+    # Cache typically delivers 80%+ hit rate so real burn is ~50/day = 1500/mo.
+    # Hence we recommend the $1 paid tier (20,000 req/mo) for safety.
+    return {
+        "odds_api": {
+            "remaining_requests": last_remaining,
+            "last_request_at": last_request_at,
+            "cache_entries": odds_cache_count,
+            "cache_ttl_offpeak_secs": int(os.environ.get("ODDS_TTL_OFFPEAK", 3600)),
+            "cache_ttl_peak_secs": int(os.environ.get("ODDS_TTL_PEAK", 900)),
+        },
+        "api_football_cache_entries": af_cache_count,
+        "api_basketball_cache_entries": ab_cache_count,
+        "fixture_sync_runs_24h": fixture_sync_runs,
+        "picks_generated_7d": picks_7d,
+        "schedulers": {
+            "fixture_sync_interval_min": 30,
+            "autosettle_interval_hours": None,  # filled by config
+        },
+        "budget_advice": (
+            "Free tier (500 req/mo) is tight; expect breaches during heavy match days. "
+            "Recommended: the-odds-api $1/mo plan (20k req/mo). With current 30-min "
+            "fixture-sync + 60-min Odds cache, typical burn is ~50 req/day = 1,500/mo."
+        ),
+    }
+
+
+@api.get("/admin/apibasketball/diagnostic")
+async def admin_apibasketball_diagnostic(_: dict = Depends(admin_required)):
+    """RAW diagnostic for API-Basketball. Hits /status + /timezone + /seasons
+    + /teams?season=current and returns the literal API responses so admin
+    can see EXACTLY what's blocked (subscription tier, season access, etc).
+    """
+    import httpx
+    from apibasketball_service import _key, _base, SEASON
+    key = _key()
+    if not key:
+        return {"ok": False, "error": "No API key configured in DB. Paste it in Admin → Configuration."}
+    base = _base()
+    headers = {"x-apisports-key": key}
+    out = {"ok": True, "season_under_test": SEASON, "base_url": base,
+           "key_preview": f"****{key[-4:]}", "endpoints": {}}
+    endpoints = [
+        ("/status", None),
+        ("/timezone", None),
+        ("/seasons", None),
+        ("/leagues", {"id": 12}),  # NBA
+        ("/teams", {"league": 12, "season": SEASON}),
+        ("/games", {"league": 12, "season": SEASON,
+                    "date": datetime.now(timezone.utc).strftime("%Y-%m-%d")}),
+    ]
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        for path, params in endpoints:
+            try:
+                r = await client.get(f"{base}{path}", params=params, headers=headers)
+                body = r.json() if r.status_code < 500 else r.text
+                out["endpoints"][path] = {
+                    "status_code": r.status_code,
+                    "headers": {
+                        "x-ratelimit-remaining": r.headers.get("x-ratelimit-remaining"),
+                        "x-ratelimit-requests-remaining": r.headers.get("x-ratelimit-requests-remaining"),
+                        "x-ratelimit-requests-limit": r.headers.get("x-ratelimit-requests-limit"),
+                    },
+                    "params": params,
+                    "errors": (body.get("errors") if isinstance(body, dict) else None),
+                    "results_count": (body.get("results") if isinstance(body, dict) else None),
+                    "sample": (body.get("response", [])[:1] if isinstance(body, dict) and body.get("response") else None),
+                    "raw_excerpt": str(body)[:400] if not isinstance(body, dict) else None,
+                }
+            except Exception as e:
+                out["endpoints"][path] = {"error": str(e)[:300]}
+    return out
+
+
 async def _build_slip_for_date(date_str: str, cfg: dict):
     """Build the slip + quality gate result for a given date.
 

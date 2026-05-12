@@ -240,21 +240,22 @@ async def configure_scheduler(db) -> dict:
         )
         logger.info("Tomorrow-pregen scheduled daily at 22:00 UTC")
 
-    # Fixture-sync job: every 15 minutes pull tomorrow's schedule, match with
-    # any newly published odds, and run AI on freshly-priced fixtures. This is
-    # what makes the dashboard show 'Waiting for Odds' early instead of empty.
+    # Fixture-sync job: every 30 minutes pull tomorrow's schedule, match with
+    # any newly published odds, and run AI on freshly-priced fixtures. This
+    # cadence is intentionally conservative — the Odds API free tier is 500
+    # req/month so we cache aggressively and don't poll more than necessary.
     if _scheduler.get_job("fixture_sync"):
         _scheduler.remove_job("fixture_sync")
     _scheduler.add_job(
         _run_fixture_sync,
-        IntervalTrigger(minutes=15),
+        IntervalTrigger(minutes=30),
         id="fixture_sync",
         args=[db],
         replace_existing=True,
         misfire_grace_time=600,
         next_run_time=datetime.now(timezone.utc) + timedelta(seconds=15),
     )
-    logger.info("Fixture-sync scheduled every 15 minutes")
+    logger.info("Fixture-sync scheduled every 30 minutes")
 
     daily_next = _scheduler.get_job("daily_pipeline").next_run_time if _scheduler.get_job("daily_pipeline") else None
     settle_next = _scheduler.get_job("autosettle").next_run_time if _scheduler.get_job("autosettle") else None

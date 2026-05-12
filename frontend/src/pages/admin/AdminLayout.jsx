@@ -2,13 +2,14 @@ import React, { useEffect, useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import { api } from "@/lib/api";
-import { Users, CreditCard, Settings, BarChart3, Layers, Activity, Shield } from "lucide-react";
+import { Users, CreditCard, Settings, BarChart3, Layers, Activity, Shield, Zap } from "lucide-react";
 
 const ITEMS = [
   { to: "/admin", icon: BarChart3, label: "Overview", end: true },
   { to: "/admin/users", icon: Users, label: "Users" },
   { to: "/admin/payments", icon: CreditCard, label: "Payments" },
   { to: "/admin/predictions", icon: Layers, label: "Predictions" },
+  { to: "/admin/usage", icon: Zap, label: "Usage & Cost" },
   { to: "/admin/security", icon: Shield, label: "Security" },
   { to: "/admin/config", icon: Settings, label: "Configuration" },
 ];

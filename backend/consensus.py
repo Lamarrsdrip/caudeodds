@@ -138,6 +138,46 @@ def evaluate(
             reason=f"EV {quant.expected_value:.3f} < {settings.min_ev:.3f}",
         )
 
+    # ── HOME-ADVANTAGE BIAS GUARD ──────────────────────────────────────────
+    # Bettors and our LLMs have a historical pattern of over-rating away teams
+    # when the visiting side has higher recent form. Football home-edge is
+    # ~5-8 percentage points in win probability across all major leagues; we
+    # encode this asymmetry: AWAY picks need a larger calibrated edge than
+    # HOME picks before they're admitted, and AWAY picks against a clear home
+    # favorite (book home win < 1.70) are rejected outright unless data is rich.
+    richness_early = float(getattr(fx, "data_richness", 0.0) or 0.0)
+    if fx.sport == "football":
+        odds_dict = fx.odds if isinstance(fx.odds, dict) else {}
+        book_home = (odds_dict.get("1X2") or {}).get("home")
+        if quant_side == "AWAY":
+            # Reject if home is clear favorite and we don't have full intel
+            if book_home is not None and book_home <= 1.70 and richness_early < 0.6:
+                return None, RejectionLog(
+                    date=date_str, match=match, sport=fx.sport,
+                    reason_code="HOME_FAV_TRAP",
+                    reason=(f"AWAY pick against clear home favorite "
+                            f"(home @ {book_home:.2f}) without sufficient intel "
+                            f"(data_richness {richness_early:.2f} < 0.60). Home edge "
+                            f"+5-8pp makes this a coin-flip at best."),
+                )
+            # Add 1pp EV penalty to away picks (counter-bias)
+            quant.expected_value -= 0.01
+
+    # ── ODDS-DRIFT / TRAP DETECTION ────────────────────────────────────────
+    # If the bookmaker line has drifted hard against our pick in the last hour
+    # (>15% probability shift), it usually means sharp money has hit the other
+    # side and we're now on the wrong end of the steam. Reject unless our
+    # research independently confirms the original direction.
+    drift_pct = float(getattr(fx, "line_drift_pct", 0.0) or 0.0)
+    if drift_pct < -15.0 and richness_early < 0.7:
+        return None, RejectionLog(
+            date=date_str, match=match, sport=fx.sport,
+            reason_code="ADVERSE_LINE_MOVE",
+            reason=(f"Line drifted {drift_pct:.1f}% against our pick in last hour "
+                    f"— sharp money is on the other side. Data richness "
+                    f"{richness_early:.2f} insufficient to fade the move."),
+        )
+
     if reasoning.narrative_risk > 70:
         return None, RejectionLog(
             date=date_str, match=match, sport=fx.sport,

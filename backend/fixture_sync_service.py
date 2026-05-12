@@ -215,7 +215,7 @@ async def sync_schedule_for_date(db, date_str: str) -> Dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def _fetch_odds_events_for_date(date_str: str) -> List[Dict]:
+async def _fetch_odds_events_for_date(date_str: str, db=None) -> List[Dict]:
     """Pull odds events (football + basketball) whose commence date matches.
 
     Returns a list of internal-format fixture dicts ready for AI consumption.
@@ -225,7 +225,7 @@ async def _fetch_odds_events_for_date(date_str: str) -> List[Dict]:
     # Football
     for sport_key, (league, country, cc) in FOOTBALL_SPORT_KEYS.items():
         try:
-            events = await fetch_odds(sport_key, regions=REGIONS, markets="h2h,totals")
+            events = await fetch_odds(sport_key, regions=REGIONS, markets="h2h,totals", db=db)
         except TheOddsAPIError as e:
             logger.debug("Odds fetch skip %s: %s", sport_key, e)
             continue
@@ -243,7 +243,7 @@ async def _fetch_odds_events_for_date(date_str: str) -> List[Dict]:
     for sport_key, (league, country, cc) in BASKETBALL_SPORT_KEYS.items():
         regions = US_REGIONS if "nba" in sport_key else REGIONS
         try:
-            events = await fetch_odds(sport_key, regions=regions, markets="h2h,totals")
+            events = await fetch_odds(sport_key, regions=regions, markets="h2h,totals", db=db)
         except TheOddsAPIError as e:
             logger.debug("Odds fetch skip %s: %s", sport_key, e)
             continue
@@ -275,7 +275,7 @@ async def enrich_with_odds(db, date_str: str) -> Dict:
 
     Returns: {priced, still_waiting, no_match}.
     """
-    odds_fixtures = await _fetch_odds_events_for_date(date_str)
+    odds_fixtures = await _fetch_odds_events_for_date(date_str, db=db)
     if not odds_fixtures:
         return {"date": date_str, "priced": 0, "still_waiting": 0, "no_match": 0,
                 "message": "No odds available yet from The Odds API for this date."}

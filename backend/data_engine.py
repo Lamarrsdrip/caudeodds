@@ -58,7 +58,7 @@ async def _enrich_one(db, fx: Fixture) -> Fixture:
 
 
 async def _fetch_real_async(date_str: str, db=None) -> List[Fixture]:
-    raw = await fetch_real_fixtures_for_today(date_str)
+    raw = await fetch_real_fixtures_for_today(date_str, db=db)
     out: List[Fixture] = []
     for d in raw:
         d.pop("_country", None)

@@ -20,6 +20,7 @@ import AdminPayments from "@/pages/admin/AdminPayments";
 import AdminConfig from "@/pages/admin/AdminConfig";
 import AdminPredictions from "@/pages/admin/AdminPredictions";
 import AdminSecurity from "@/pages/admin/AdminSecurity";
+import AdminUsage from "@/pages/admin/AdminUsage";
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading } = useAuth();
@@ -53,6 +54,7 @@ export default function App() {
             <Route path="users" element={<AdminUsers/>}/>
             <Route path="payments" element={<AdminPayments/>}/>
             <Route path="predictions" element={<AdminPredictions/>}/>
+            <Route path="usage" element={<AdminUsage/>}/>
             <Route path="security" element={<AdminSecurity/>}/>
             <Route path="config" element={<AdminConfig/>}/>
           </Route>
