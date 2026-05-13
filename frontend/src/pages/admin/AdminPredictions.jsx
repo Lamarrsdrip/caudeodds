@@ -133,11 +133,18 @@ export default function AdminPredictions() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight">PREDICTIONS</h1>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => generate(false)} disabled={busy} data-testid="generate-cached-btn" className="border border-[#262626] hover:bg-[#1a1a1a] font-mono text-xs uppercase tracking-widest px-4 py-2 disabled:opacity-50 flex-1 sm:flex-none">
-            {busy ? "Running…" : "Generate (cached)"}
+          <button onClick={() => generate(false)} disabled={busy} data-testid="generate-cached-btn" className="bg-[#00ff66] text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 hover:bg-[#f5f5f5] disabled:opacity-50 flex-1 sm:flex-none" title="RECOMMENDED — runs AI ensemble on today's fixture pool. Append-only; existing picks are preserved.">
+            {busy ? "Running…" : "Run Daily Ensemble"}
           </button>
-          <button onClick={() => generate(true)} disabled={busy} data-testid="force-regen-btn" className="bg-[#00ff66] text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 hover:bg-[#f5f5f5] disabled:opacity-50 flex-1 sm:flex-none">
-            {busy ? "Running…" : "Force Re-Generate"}
+          <button
+            onClick={() => {
+              if (!window.confirm("⚠️ Force Re-Generate is a DEBUG action.\n\nIt re-runs the AI ensemble on every fixture for today (including already-analyzed ones). This is append-only — existing picks are NEVER deleted — but it will burn LLM credits.\n\nUse 'Run Daily Ensemble' for normal workflow.\n\nContinue?")) return;
+              generate(true);
+            }}
+            disabled={busy} data-testid="force-regen-btn"
+            className="border border-[#ff6b35] text-[#ff6b35] hover:bg-[#ff6b35] hover:text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 disabled:opacity-50 flex-1 sm:flex-none"
+            title="DEBUG ONLY — re-runs the AI on every fixture. Append-only but burns LLM credits.">
+            {busy ? "Running…" : "Force Re-Generate (debug)"}
           </button>
           <button onClick={() => generate(false, "tomorrow")} disabled={busy} data-testid="generate-tomorrow-btn" className="border border-[#00ff66] text-[#00ff66] hover:bg-[#00ff66] hover:text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 disabled:opacity-50 flex-1 sm:flex-none">
             {busy ? "Running…" : "Pre-Gen Tomorrow"}

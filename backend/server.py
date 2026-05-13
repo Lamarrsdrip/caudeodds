@@ -818,19 +818,52 @@ async def slip_today(request: Request):
         return {"date": date_str, "slip": None, "locked": locked,
                 "fixtures_analyzed": 0, "is_tomorrow": is_tomorrow}
 
-    # If locked, return a teaser (no leg details)
+    # If locked, return a teaser (no leg details, no exact odds — picks must
+    # never be reverse-engineerable from public/teaser data).
     if locked:
         teaser = slip.model_dump()
+
+        def _odds_band(price: float) -> str:
+            """Bucket an exact decimal odd into a 0.5-wide range so the public
+            payload doesn't leak the exact selection via Google + league."""
+            try:
+                low = (int(float(price) * 2) / 2)
+                return f"{low:.1f}–{low + 0.5:.1f}"
+            except Exception:
+                return "—"
+
+        def _conf_band(c: int) -> str:
+            if c >= 85:
+                return "ELITE"
+            if c >= 75:
+                return "HIGH"
+            if c >= 65:
+                return "MEDIUM"
+            return "LOW"
+
         teaser["legs"] = [{
-            "match": "Locked", "league": leg.league, "country": leg.country,
+            "match": "🔒 Locked",
+            "league": leg.league, "country": leg.country,
             "country_code": leg.country_code, "sport": leg.sport,
-            "market": "LOCKED", "selection_label": "Subscribe to unlock",
-            "odds": leg.odds, "confidence": 0, "edge_pct": 0,
+            "market": "LOCKED",
+            "selection_label": "Subscribe to unlock",
+            "odds": None,                       # NEVER expose exact price
+            "odds_range": _odds_band(leg.odds), # show a band only
+            "confidence": 0,
+            "confidence_band": "—",
+            "edge_pct": 0,
             "kickoff": leg.kickoff, "reasoning": "",
         } for leg in slip.legs]
+        # Combined odds also bucketed
+        co = float(slip.combined_odds or 0)
+        teaser["combined_odds"] = None
+        teaser["combined_odds_range"] = (
+            "2.0–3.0" if co < 3.0 else "3.0–4.0" if co < 4.0 else "4.0–5.0"
+        )
         teaser["sportybet_code"] = ""
         teaser["summary"] = (
-            f"{slip.leg_count}-leg slip ready. Subscribe to unlock the picks, the SportyBet booking code, "
+            f"{slip.leg_count}-leg slip ready · combined odds {teaser['combined_odds_range']}. "
+            f"Subscribe to unlock the picks, the SportyBet booking code, "
             f"and the full AI ensemble reasoning."
         )
         teaser["locked"] = True

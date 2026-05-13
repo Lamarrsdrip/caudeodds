@@ -52,7 +52,19 @@ Users place real money on these picks. Every fixture, price, calculation, and pr
 - **Tomorrow pre-gen cron** — scheduler.py adds `_run_tomorrow_pregen` job running daily at 22:00 UTC so tomorrow's slip is ready the moment today's slate ends.
 - **Admin Pre-Gen Tomorrow** button on `/admin/predictions` → `POST /api/slip/generate?date=tomorrow`. Endpoint also accepts explicit `YYYY-MM-DD` dates with proper 400 on invalid input.
 
-### Phase 11 — Prediction lifecycle: APPEND-ONLY, 3h kickoff deadline, stuck recovery (2026-05-11)
+### Phase 12 — Teaser protection + WIN/LOSS labels + admin button split (2026-05-11)
+
+- **Teaser cannot leak picks**: `/api/slip/today` for unauthenticated users now NULLs out `odds`, `combined_odds`, `confidence`, `edge_pct`, `expected_value`, `sportybet_code` and replaces with `odds_range` (0.5-wide band like "1.5–2.0") + `combined_odds_range` (e.g. "2.0–3.0") + `confidence_band` ("ELITE"/"HIGH"/"MEDIUM"/"LOW"). Team names already replaced with "🔒 Locked". Cannot be reverse-engineered.
+- **DailySlip + admin UI** updated to handle the null/range values gracefully (shows 🔒 or the range string when locked).
+- **WIN/LOSS/VOID result labels**: `/api/schedule/upcoming` now joins fixture rows with their settled pick status. `UpcomingFixtures.jsx` renders **WIN ✅ / LOSS ❌ / VOID ⚪** badges next to finished matches. Auto-settlement service already writes `status='won'|'lost'|'void'` after the match grades.
+- **Admin button split**:
+  - **Run Daily Ensemble** (primary green, default flow) — runs AI on today's existing fixture pool. Append-only; never wipes anything.
+  - **Force Re-Generate (debug)** — now requires a confirmation modal warning "DEBUG ACTION: burns LLM credits". Append-only after Phase 11 so safe to use, just expensive.
+  - **Pre-Gen Tomorrow** — unchanged.
+  - **Heal Bad Data** — unchanged.
+- **3 new pytest cases** in `tests/test_phase12_teaser_protection.py`. Full regression: **60 passed / 1 expected skip**.
+
+
 
 User requirement: "NEVER delete old predictions when generating new ones. Force Generate should ONLY append/add."
 

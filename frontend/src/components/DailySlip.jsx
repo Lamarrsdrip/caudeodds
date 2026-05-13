@@ -84,11 +84,11 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
       <div className="grid grid-cols-2 sm:grid-cols-5 border border-[#262626]" data-testid="slip-kpis">
         {[
           ["Legs", slip.leg_count],
-          ["Combined Odds", slip.combined_odds?.toFixed(2)],
-          ["Confidence", `${slip.combined_confidence?.toFixed(0)}%`],
-          ["EV", `${slip.expected_value > 0 ? "+" : ""}${(slip.expected_value * 100).toFixed(1)}%`],
-          ["Risk", slip.risk_level],
-        ].map(([k, v], i) => (
+          ["Combined Odds", slip.combined_odds != null ? slip.combined_odds.toFixed(2) : (slip.combined_odds_range || "🔒")],
+          ["Confidence", slip.combined_confidence ? `${slip.combined_confidence.toFixed(0)}%` : "🔒"],
+          ["EV", slip.expected_value != null ? `${slip.expected_value > 0 ? "+" : ""}${(slip.expected_value * 100).toFixed(1)}%` : "🔒"],
+          ["Risk", slip.risk_level || "🔒"],
+        ].map(([k, v]) => (
           <div key={k} className="p-4 sm:p-5 border-b sm:border-b-0 sm:border-r last:border-r-0 border-[#262626]">
             <div className="text-[10px] font-mono uppercase tracking-widest text-[#525252]">{k}</div>
             <div className={`font-mono text-xl sm:text-2xl mt-1 ${k === "EV" ? evColor : ""}`}>{v}</div>
@@ -179,7 +179,9 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
                     <div className="font-heading font-bold text-base sm:text-lg leading-tight">{l.match}</div>
                     <div className="text-sm text-[#a3a3a3] mt-1">{l.selection_label}</div>
                     <div className="flex items-center gap-3 mt-2 flex-wrap">
-                      <span className="font-mono text-2xl sm:text-3xl font-bold sm:hidden">{l.odds?.toFixed(2)}</span>
+                      <span className="font-mono text-2xl sm:text-3xl font-bold sm:hidden">
+                        {l.odds != null ? l.odds.toFixed(2) : (l.odds_range || "🔒")}
+                      </span>
                       {l.confidence > 0 && (
                         <span className="font-mono text-[10px] uppercase tracking-widest text-[#525252] sm:hidden">
                           CONF {l.confidence.toFixed(0)}% · EDGE {l.edge_pct?.toFixed(1)}% · EV {l.expected_value > 0 ? "+" : ""}{(l.expected_value * 100).toFixed(1)}%
@@ -193,7 +195,9 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
                 )}
               </div>
               <div className="text-right shrink-0 hidden sm:block">
-                <div className="font-mono text-3xl font-bold">{l.odds?.toFixed(2)}</div>
+                <div className="font-mono text-3xl font-bold" data-testid={`leg-odds-${i}`}>
+                  {l.odds != null ? l.odds.toFixed(2) : (l.odds_range || "🔒")}
+                </div>
                 {!isLocked && l.confidence > 0 && (
                   <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mt-1">
                     CONF {l.confidence.toFixed(0)}% · EDGE {l.edge_pct?.toFixed(1)}% · EV {l.expected_value > 0 ? "+" : ""}{(l.expected_value * 100).toFixed(1)}%

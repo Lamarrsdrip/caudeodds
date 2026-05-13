@@ -692,6 +692,22 @@ async def get_upcoming_schedule(db, date_str: str) -> Dict:
             "lifecycle": lifecycle,
             "no_prediction_reason": d.get("no_prediction_reason"),
             "has_pick": bool(d.get("pick_id")),
+            "pick_id": d.get("pick_id"),
+            # `result_status` is filled below for fixtures whose pick has been
+            # settled — won/lost/void. Used by the UI to show WIN ✅ / LOSS ❌.
+            "result_status": None,
         })
+
+    # Bulk-fetch pick statuses for fixtures that have picks, and attach to rows.
+    pick_ids = [f["pick_id"] for f in fixtures if f.get("pick_id")]
+    if pick_ids:
+        statuses = await db.claudeodd_picks.find(
+            {"id": {"$in": pick_ids}}, {"_id": 0, "id": 1, "status": 1},
+        ).to_list(len(pick_ids))
+        s_by_id = {p["id"]: p.get("status") for p in statuses}
+        for f in fixtures:
+            pid = f.get("pick_id")
+            if pid and pid in s_by_id:
+                f["result_status"] = s_by_id[pid]
 
     return {"date": date_str, "summary": summary, "fixtures": fixtures}

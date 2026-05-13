@@ -166,6 +166,13 @@ export default function UpcomingFixtures() {
               <div className="co-card divide-y divide-[#1a1a1a]">
                 {items.map((fx) => {
                   const badge = BADGE_MAP[fx.badge] || BADGE_MAP.waiting;
+                  const resultBadge = fx.result_status === "won"
+                    ? { Icon: CheckCircle2, label: "WIN ✅", cls: "bg-[#00ff66] text-[#050505]" }
+                    : fx.result_status === "lost"
+                    ? { Icon: XCircle, label: "LOSS ❌", cls: "bg-[#ff3333] text-white" }
+                    : fx.result_status === "void"
+                    ? { Icon: Ban, label: "VOID ⚪", cls: "bg-[#525252] text-white" }
+                    : null;
                   return (
                     <div key={fx.id} className="p-4 flex items-center gap-3" data-testid={`fixture-row-${fx.id}`}>
                       <span className={`px-2 py-1 font-mono text-[9px] uppercase tracking-widest font-bold inline-flex items-center gap-1.5 shrink-0 ${badge.cls}`}>
@@ -176,6 +183,12 @@ export default function UpcomingFixtures() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="co-tag">{fx.sport.toUpperCase()}</span>
                           <span className="font-mono text-[10px] uppercase tracking-widest text-[#a3a3a3] truncate">{fx.league}</span>
+                          {resultBadge && (
+                            <span className={`px-2 py-0.5 font-mono text-[9px] uppercase tracking-widest font-bold inline-flex items-center gap-1 ${resultBadge.cls}`} data-testid={`fixture-result-${fx.id}`}>
+                              <resultBadge.Icon className="w-3 h-3" />
+                              {resultBadge.label}
+                            </span>
+                          )}
                         </div>
                         <div className="font-heading font-bold text-sm sm:text-base mt-1 truncate">
                           {fx.home} <span className="text-[#525252] font-mono mx-1">vs</span> {fx.away}
