@@ -170,10 +170,21 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
                   )}
                 </div>
                 {isLocked ? (
-                  <div className="flex items-center gap-2 mt-1 text-[#525252]">
-                    <Lock className="w-4 h-4"/>
-                    <span className="font-heading font-bold text-base">Subscribe to unlock</span>
-                  </div>
+                  <>
+                    <div className="font-heading font-bold text-base sm:text-lg leading-tight select-none blur-sm text-[#525252]">
+                      ████████ vs ████████
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 text-[#525252]">
+                      <Lock className="w-3.5 h-3.5"/>
+                      <span className="font-mono text-[10px] uppercase tracking-widest">Subscribe to unlock bet</span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-2 flex-wrap sm:hidden">
+                      <span className="font-mono text-2xl font-bold text-[#f5f5f5]" data-testid={`leg-odds-mobile-${i}`}>
+                        {l.odds != null ? l.odds.toFixed(2) : "—"}
+                      </span>
+                      <span className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">Odds</span>
+                    </div>
+                  </>
                 ) : (
                   <>
                     <div className="font-heading font-bold text-base sm:text-lg leading-tight">{l.match}</div>

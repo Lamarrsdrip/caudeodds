@@ -154,6 +154,16 @@ Optimisations shipped:
 - **New frontend component** `UpcomingFixtures.jsx` on Dashboard: date tabs (Today/Tomorrow/+1), summary chips, fixture rows with colour-coded badges (yellow=WAITING FOR ODDS / blue+spin=ANALYZING / green=READY / gray=NO BET / orange=RETRYING). Auto-polls every 60s so users watch fixtures flip from waiting → ready the moment bookmakers price them. Result: dashboard is **never empty when matches actually exist**.
 - Verified: 14 real fixtures fetched across 3 days from API-Football in preview (Napoli vs Bologna, Tottenham vs Leeds, etc.).
 
+### Phase 13 — Teaser fix + Anti-trial-abuse + Referral program (2026-05-13)
+- **Teaser fix (P0)**: locked `/api/slip/today` now hides the bet (match, league, market, selection_label) but exposes the real `odds` per leg and `combined_odds`, exactly as the user requested ("blur the bet and leave the odds"). Frontend renders the selection with a `blur-sm` mask + 🔒 prompt. SportyBet code remains hidden.
+- **Device fingerprint**: new users send a FingerprintJS visitor ID (`device_fingerprint`) with registration. Duplicate fingerprints → `409 Conflict` to stop users from making fresh accounts after their trial expires. Stored on `users.device_fingerprint` with a sparse index.
+- **Referral program** (new module `backend/referrals.py`):
+  - Every user gets a unique `referral_code` (8-char base32) at registration; legacy users get one auto-backfilled on first call to `/api/referral/me`.
+  - Registering with a valid `referral_code` → referee gets **5-day trial** instead of the default 3; referrer gets **+1 day** added to their active subscription/trial, plus `referrals_count` incremented.
+  - New endpoints: `GET /api/referral/me` (code, share link, count, list of referees, reward rules) and `GET /api/referral/validate?code=...` (public live validation for the register form).
+  - Frontend: Register page accepts `?ref=CODE` URL prefill, live-validates with green/red indicators, shows "5 days free unlocked thanks to <name>" bonus banner. New `ReferralCard` on the Dashboard shows code, share link (one-tap copy), referral count, and the list of referred users with their signup dates.
+- Tests: `backend/tests/test_phase13_referrals.py` (5 tests) and updated `test_phase12_teaser_protection.py` (3 tests) — all green.
+
 ## Validated
 - 100% pass on iter_3 / iter_4 / iter_5 / **iter_6** testing-agent runs (32 backend pytest passing + 3 expected skips; comprehensive frontend audit desktop+mobile 390x844, 0 console errors across /, /dashboard, /admin/predictions, /pricing, /subscription)
 - iter_6: Phase-5 features (PWA auto-update / Public ROI / Next-day rollover) all verified end-to-end via public URL

@@ -5,6 +5,7 @@ import EmrizFooter from "@/components/EmrizFooter";
 import DailySlip from "@/components/DailySlip";
 import PushOptIn from "@/components/PushOptIn";
 import UpcomingFixtures from "@/components/UpcomingFixtures";
+import ReferralCard from "@/components/ReferralCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
 import { Calendar, Clock, ShieldCheck } from "lucide-react";
@@ -163,6 +164,11 @@ export default function Dashboard() {
             {/* Live fixture schedule — never empty, even before odds arrive */}
             <div className="mt-8">
               <UpcomingFixtures />
+            </div>
+
+            {/* Refer-a-friend — get more trial / sub days */}
+            <div className="mt-8">
+              <ReferralCard />
             </div>
           </div>
         )}

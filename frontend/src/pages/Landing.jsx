@@ -79,13 +79,13 @@ export default function Landing() {
               </div>
               <div className="space-y-px bg-[#262626] border border-[#262626]">
                 {(slip.legs || []).map((l, i) => (
-                  <div key={i} className="bg-[#121212] p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Lock className="w-4 h-4 text-[#525252]" />
-                      <span className="font-mono text-[10px] text-[#525252] uppercase">{l.sport} · {l.league}</span>
+                  <div key={`leg-${i}`} className="bg-[#121212] p-4 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Lock className="w-4 h-4 text-[#525252] shrink-0" />
+                      <span className="font-mono text-[10px] text-[#525252] uppercase truncate">{l.sport}</span>
                     </div>
-                    <div className="font-mono text-xs text-[#525252]">{l.selection_label}</div>
-                    <div className="font-mono text-lg text-[#525252]">{l.odds?.toFixed(2)}</div>
+                    <div className="font-mono text-xs text-[#525252] blur-sm select-none flex-1 text-center">████████</div>
+                    <div className="font-mono text-lg text-[#f5f5f5] shrink-0">{l.odds != null ? l.odds.toFixed(2) : "—"}</div>
                   </div>
                 ))}
               </div>

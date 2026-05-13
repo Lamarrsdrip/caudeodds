@@ -58,6 +58,14 @@ from subscriptions import (  # noqa: E402
     refresh_status,
     start_trial,
 )
+from referrals import (  # noqa: E402
+    REFERRAL_TRIAL_DAYS,
+    device_already_used,
+    ensure_unique_code,
+    find_referrer,
+    list_referrals,
+    reward_referrer,
+)
 from models import Pick, RejectionLog, SettlePayload, Settings  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -95,6 +103,10 @@ async def on_startup():
     await rej_col.create_index("date")
     await db.push_subscriptions.create_index("endpoint", unique=True)
     await db.push_subscriptions.create_index("user_id")
+    # Referral + device-abuse indexes
+    await users_col.create_index("referral_code", sparse=True)
+    await users_col.create_index("referred_by_id", sparse=True)
+    await users_col.create_index("device_fingerprint", sparse=True)
     await seed_admin(db)
     # Reap any zombie pipeline jobs left from a previous restart so subsequent
     # Force Re-Generate calls aren't blocked by a permanently "running" row.
@@ -287,9 +299,24 @@ async def auth_register(payload: RegisterPayload):
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    user_id = str(uuid.uuid4())
+    # Device fingerprint — one account per phone/browser to stop trial abuse
+    if await device_already_used(db, payload.device_fingerprint):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This device already has an account. Each device can only "
+                "register once — please log in or subscribe to continue."
+            ),
+        )
+
+    # Look up referrer (optional)
+    referrer = await find_referrer(db, payload.referral_code)
     cfg = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
-    trial_days = int(cfg.get("trial_days", 3))
+    default_trial = int(cfg.get("trial_days", 3))
+    trial_days = REFERRAL_TRIAL_DAYS if referrer else default_trial
+
+    user_id = str(uuid.uuid4())
+    my_code = await ensure_unique_code(db)
 
     doc = {
         "id": user_id,
@@ -304,12 +331,24 @@ async def auth_register(payload: RegisterPayload):
         "subscription_status": "trial",
         "trial_ends_at": None,
         "subscription_ends_at": None,
+        "device_fingerprint": (payload.device_fingerprint or "").strip() or None,
+        "referral_code": my_code,
+        "referred_by_id": referrer["id"] if referrer else None,
+        "referred_by_code": (payload.referral_code or "").strip().upper() if referrer else None,
+        "referrals_count": 0,
     }
     await users_col.insert_one(doc)
     trial_ends = await start_trial(db, user_id, days=trial_days)
     doc["trial_ends_at"] = trial_ends
     doc["subscription_status"] = "trial"
     doc.pop("password_hash", None)
+
+    # Reward the referrer (+1 day) — don't block registration on failure.
+    if referrer:
+        try:
+            await reward_referrer(db, referrer)
+        except Exception as e:
+            logger.warning("Failed to reward referrer %s: %s", referrer.get("id"), e)
 
     token = create_access_token(user_id, email, "user")
 
@@ -403,6 +442,65 @@ async def auth_me(user: dict = Depends(get_current_user_dep)):
 @api.post("/auth/logout")
 async def auth_logout(user: dict = Depends(get_current_user_dep)):
     return {"ok": True}
+
+
+# ------------------ Referral program ------------------
+
+@api.get("/referral/me")
+async def referral_me(request: Request, user: dict = Depends(get_current_user_dep)):
+    """Return the current user's referral code, share link, and stats."""
+    # Backfill a referral_code for legacy accounts created before the program.
+    code = user.get("referral_code")
+    if not code:
+        code = await ensure_unique_code(db)
+        await users_col.update_one({"id": user["id"]}, {"$set": {"referral_code": code}})
+
+    # Build a public-facing share URL. Prefer the Origin/Referer header so the
+    # link matches whatever domain the user is currently on (preview, prod,
+    # custom domain). Fall back to the FRONTEND_URL env if provided.
+    origin = (
+        request.headers.get("origin")
+        or request.headers.get("referer", "").rstrip("/")
+        or os.environ.get("FRONTEND_URL", "")
+    ).rstrip("/")
+    # Strip path off referer to get clean origin
+    if origin and "://" in origin:
+        scheme, rest = origin.split("://", 1)
+        host = rest.split("/", 1)[0]
+        origin = f"{scheme}://{host}"
+
+    share_link = f"{origin}/register?ref={code}" if origin else f"/register?ref={code}"
+
+    referred = await list_referrals(db, user["id"])
+    count = int(user.get("referrals_count") or 0)
+    # Self-heal if the cached count drifts from reality
+    if count != len(referred):
+        count = len(referred)
+        await users_col.update_one({"id": user["id"]}, {"$set": {"referrals_count": count}})
+
+    return {
+        "code": code,
+        "share_link": share_link,
+        "count": count,
+        "rules": {
+            "referee_trial_days": REFERRAL_TRIAL_DAYS,
+            "referrer_bonus_days": 1,
+        },
+        "referred": referred,
+    }
+
+
+@api.get("/referral/validate")
+async def referral_validate(code: str):
+    """Public endpoint — checks if a code is valid before registration."""
+    referrer = await find_referrer(db, code)
+    if not referrer:
+        return {"valid": False}
+    return {
+        "valid": True,
+        "referrer_name": referrer.get("name") or "a friend",
+        "referee_trial_days": REFERRAL_TRIAL_DAYS,
+    }
 
 
 # ------------------ Password change + SMTP + activity log ------------------
@@ -818,53 +916,38 @@ async def slip_today(request: Request):
         return {"date": date_str, "slip": None, "locked": locked,
                 "fixtures_analyzed": 0, "is_tomorrow": is_tomorrow}
 
-    # If locked, return a teaser (no leg details, no exact odds — picks must
-    # never be reverse-engineerable from public/teaser data).
+    # If locked, return a teaser. The user explicitly asked for the *bet
+    # selection* (match, market, side) to be hidden, while the *odds* stay
+    # visible so prospects can see the price they'd be locking in.
+    # NEVER expose: match name, league country, market, selection_label,
+    # reasoning, sportybet code. ALWAYS expose: odds, kickoff, sport, confidence
+    # bucket, combined odds.
     if locked:
         teaser = slip.model_dump()
 
-        def _odds_band(price: float) -> str:
-            """Bucket an exact decimal odd into a 0.5-wide range so the public
-            payload doesn't leak the exact selection via Google + league."""
-            try:
-                low = (int(float(price) * 2) / 2)
-                return f"{low:.1f}–{low + 0.5:.1f}"
-            except Exception:
-                return "—"
-
-        def _conf_band(c: int) -> str:
-            if c >= 85:
-                return "ELITE"
-            if c >= 75:
-                return "HIGH"
-            if c >= 65:
-                return "MEDIUM"
-            return "LOW"
-
         teaser["legs"] = [{
-            "match": "🔒 Locked",
-            "league": leg.league, "country": leg.country,
-            "country_code": leg.country_code, "sport": leg.sport,
-            "market": "LOCKED",
-            "selection_label": "Subscribe to unlock",
-            "odds": None,                       # NEVER expose exact price
-            "odds_range": _odds_band(leg.odds), # show a band only
+            "match": "🔒 Locked",                  # hide teams — they identify the game
+            "league": "🔒 Locked",                 # hide league — narrows the game too
+            "country": "",
+            "country_code": "",
+            "sport": leg.sport,                    # sport bucket is safe
+            "market": "🔒 Locked",                 # hide bet market
+            "selection_label": "🔒 Locked",        # hide bet side (Double Chance / DNB / etc.)
+            "odds": leg.odds,                      # user asked: leave the odds visible
             "confidence": 0,
-            "confidence_band": "—",
             "edge_pct": 0,
-            "kickoff": leg.kickoff, "reasoning": "",
+            "expected_value": 0,
+            "kickoff": leg.kickoff,                # kickoff time is fine — doesn't identify the bet
+            "reasoning": "",
         } for leg in slip.legs]
-        # Combined odds also bucketed
-        co = float(slip.combined_odds or 0)
-        teaser["combined_odds"] = None
-        teaser["combined_odds_range"] = (
-            "2.0–3.0" if co < 3.0 else "3.0–4.0" if co < 4.0 else "4.0–5.0"
-        )
+        teaser["combined_odds"] = slip.combined_odds  # show the actual combined price
+        teaser["combined_confidence"] = 0
+        teaser["expected_value"] = 0
         teaser["sportybet_code"] = ""
         teaser["summary"] = (
-            f"{slip.leg_count}-leg slip ready · combined odds {teaser['combined_odds_range']}. "
-            f"Subscribe to unlock the picks, the SportyBet booking code, "
-            f"and the full AI ensemble reasoning."
+            f"{slip.leg_count}-leg slip ready · combined odds "
+            f"{slip.combined_odds:.2f}. Subscribe to unlock the picks, "
+            f"the SportyBet booking code, and the full AI ensemble reasoning."
         )
         teaser["locked"] = True
         return {"date": date_str, "slip": teaser, "locked": True, "is_tomorrow": is_tomorrow}

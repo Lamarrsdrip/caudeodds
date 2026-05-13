@@ -19,6 +19,8 @@ class RegisterPayload(BaseModel):
     dob: Optional[str] = None  # YYYY-MM-DD
     age_18_plus: bool
     accept_terms: bool
+    referral_code: Optional[str] = None  # optional inviter code
+    device_fingerprint: Optional[str] = None  # unique device id — one account per phone
 
 
 class LoginPayload(BaseModel):

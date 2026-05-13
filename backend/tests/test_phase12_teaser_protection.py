@@ -1,8 +1,8 @@
 """Phase 12 — Teaser protection + WIN/LOSS labels + admin button split.
 
-User requirement: NEVER leak exact pick data to public/unauthenticated users.
-Public payload must hide team names, exact odds, exact confidence so the pick
-cannot be reverse-engineered.
+User requirement: Hide the BET (match, market, selection) so prospects can't
+reverse-engineer the AI's pick. Keep the ODDS visible so they see the price
+they'd be locking in. SportyBet booking code MUST stay hidden too.
 """
 import os
 import requests
@@ -11,7 +11,7 @@ BASE = (os.environ.get("REACT_APP_BACKEND_URL") or "http://localhost:8001").rstr
 
 
 def test_unauthenticated_slip_today_locks_team_names():
-    """Public/unauth GET /api/slip/today MUST NOT expose real team names."""
+    """Public/unauth GET /api/slip/today MUST NOT expose match, market, or selection."""
     r = requests.get(f"{BASE}/api/slip/today", timeout=15)
     assert r.status_code == 200
     body = r.json()
@@ -21,30 +21,45 @@ def test_unauthenticated_slip_today_locks_team_names():
     slip = body["slip"]
     assert body.get("locked") is True, "Unauthenticated request must always be locked"
     for leg in slip.get("legs", []):
+        # Match (teams) must be hidden
         assert leg["match"] in ("🔒 Locked", "Locked"), \
             f"Locked teaser must hide team names — got match='{leg['match']}'"
-        # Exact odds must be NULL (only odds_range may be exposed)
-        assert leg["odds"] is None, \
-            f"Locked teaser must not expose exact decimal odds — got odds={leg['odds']}"
+        # League must be hidden too (it narrows the game down)
+        assert leg["league"] in ("🔒 Locked", "Locked", ""), \
+            f"Locked teaser must hide league — got league='{leg['league']}'"
+        # Market (bet type) must be hidden
+        assert "Locked" in leg["market"] or leg["market"] == "LOCKED", \
+            f"Locked teaser must hide market — got '{leg['market']}'"
+        # Selection (side/outcome) must be hidden — must NOT contain
+        # leakable phrases like "Double Chance", "Draw or Away", "Over"
+        sel = (leg.get("selection_label") or "")
+        assert "Locked" in sel or "unlock" in sel.lower(), \
+            f"Locked teaser must hide selection — got '{sel}'"
+        for leak in ("double chance", "draw or", "over 2", "under 2", "home win", "away win", "btts"):
+            assert leak not in sel.lower(), \
+                f"Locked teaser leaked selection content: '{sel}' contains '{leak}'"
         # Confidence must be zeroed
         assert leg.get("confidence", 0) == 0, \
             f"Locked teaser must zero confidence — got {leg['confidence']}"
-        # Selection label must be the unlock prompt
-        assert "unlock" in leg["selection_label"].lower() or leg["market"] == "LOCKED"
+        # Odds — by product spec — STAY visible so prospects see the price.
+        # They must be a positive number (not the exact pick reverse-engineerable
+        # without the match/market/side, which are all hidden above).
+        assert leg.get("odds") is None or leg["odds"] > 0
 
 
-def test_unauthenticated_slip_today_hides_combined_odds():
-    """Combined odds must be bucketed into a range (never exact) for public."""
+def test_unauthenticated_slip_today_hides_sportybet_code():
+    """SportyBet booking code MUST NEVER be exposed publicly."""
     r = requests.get(f"{BASE}/api/slip/today", timeout=15)
     assert r.status_code == 200
     body = r.json()
     if not body.get("slip"):
         return
-    slip = body["slip"]
     if not body.get("locked"):
         return
-    assert slip.get("combined_odds") is None
-    assert slip.get("combined_odds_range") in ("2.0–3.0", "3.0–4.0", "4.0–5.0")
+    slip = body["slip"]
+    # Combined odds — exposed (price is fine without the picks)
+    co = slip.get("combined_odds")
+    assert co is None or co > 0
     # SportyBet code must NEVER be exposed publicly
     assert slip.get("sportybet_code") in ("", None)
 
