@@ -22,6 +22,41 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 REFERRAL_TRIAL_DAYS = 5  # referee bonus trial length
 REFERRER_BONUS_DAYS = 1  # extension added to referrer per signup
 
+# Reserved words to block as vanity codes (legal/brand/abuse)
+_RESERVED_CODES = {
+    "ADMIN", "CLAUDEODDS", "CLAUDE", "EMERGENT", "SUPPORT",
+    "OFFICIAL", "STAFF", "MODERATOR", "MOD", "SYSTEM", "TEST",
+    "NULL", "UNDEFINED", "FREE", "VIP", "ROOT",
+}
+
+
+def normalize_code(raw: str) -> str:
+    """Uppercase, strip, keep only A-Z0-9."""
+    if not raw:
+        return ""
+    return "".join(ch for ch in raw.strip().upper() if ch.isalnum())
+
+
+def validate_custom_code(code: str) -> str | None:
+    """Return an error message if invalid, else None.
+
+    Rules: 4-20 chars, A-Z/0-9 only, not in reserved list, must contain at
+    least one letter (pure-digit codes are too easy to brute-force / guess).
+    """
+    if not code:
+        return "Code is required"
+    if len(code) < 4:
+        return "Code must be at least 4 characters"
+    if len(code) > 20:
+        return "Code can be at most 20 characters"
+    if not all(c.isalnum() for c in code):
+        return "Only letters (A-Z) and numbers (0-9) are allowed"
+    if not any(c.isalpha() for c in code):
+        return "Code must contain at least one letter"
+    if code in _RESERVED_CODES:
+        return "That code is reserved — please pick another"
+    return None
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -46,9 +81,7 @@ async def ensure_unique_code(db: AsyncIOMotorDatabase) -> str:
 
 async def find_referrer(db: AsyncIOMotorDatabase, raw_code: str | None) -> dict | None:
     """Return the user dict for a referral code, or None if invalid/blank."""
-    if not raw_code:
-        return None
-    code = raw_code.strip().upper()
+    code = normalize_code(raw_code or "")
     if not code:
         return None
     return await db.users.find_one(

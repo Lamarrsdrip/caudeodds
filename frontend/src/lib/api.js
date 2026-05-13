@@ -86,4 +86,5 @@ export const api = {
   // Referrals
   referralMe: () => client.get(`/referral/me`).then(r => r.data),
   referralValidate: (code) => client.get(`/referral/validate?code=${encodeURIComponent(code)}`).then(r => r.data),
+  referralSetCode: (code) => client.put(`/referral/code`, { code }).then(r => r.data),
 };

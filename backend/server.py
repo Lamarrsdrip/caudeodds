@@ -64,7 +64,9 @@ from referrals import (  # noqa: E402
     ensure_unique_code,
     find_referrer,
     list_referrals,
+    normalize_code,
     reward_referrer,
+    validate_custom_code,
 )
 from models import Pick, RejectionLog, SettlePayload, Settings  # noqa: E402
 
@@ -501,6 +503,27 @@ async def referral_validate(code: str):
         "referrer_name": referrer.get("name") or "a friend",
         "referee_trial_days": REFERRAL_TRIAL_DAYS,
     }
+
+
+@api.put("/referral/code")
+async def referral_set_code(payload: dict, user: dict = Depends(get_current_user_dep)):
+    """Let a user pick a custom referral code/word. Returns 400 on validation
+    failure, 409 if the code is already taken by someone else, 200 on success.
+    """
+    raw = (payload or {}).get("code", "")
+    code = normalize_code(raw)
+    err = validate_custom_code(code)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    # Uniqueness — but allow the user to "re-save" their own code as a no-op
+    clash = await users_col.find_one(
+        {"referral_code": code, "id": {"$ne": user["id"]}},
+        {"_id": 0, "id": 1},
+    )
+    if clash:
+        raise HTTPException(status_code=409, detail="That code is already taken — pick another")
+    await users_col.update_one({"id": user["id"]}, {"$set": {"referral_code": code}})
+    return {"ok": True, "code": code}
 
 
 # ------------------ Password change + SMTP + activity log ------------------
@@ -1205,10 +1228,16 @@ async def slip_generate_status(job_id: str, _: dict = Depends(admin_required)):
 
 @api.get("/slip/history")
 async def slip_history(limit: int = 60, user: dict = Depends(get_current_user_dep)):
-    """Past slips: aggregated per date."""
+    """Past slips: aggregated per date.
+
+    Subscribed/trial users see the full slip (match, market, picks, code).
+    Expired users see a **results-only preview**: dates, win/loss counts,
+    leg count and combined odds — enough to show what they're missing without
+    leaking the actual picks. This drives subscription renewals from the
+    dashboard instead of an empty "subscription required" wall.
+    """
     user = await refresh_status(db, user)
-    if not has_access(user):
-        raise HTTPException(status_code=402, detail="Subscription required")
+    has_full_access = has_access(user)
     docs = await picks_col.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
     by_date: dict = {}
     for d in docs:
@@ -1221,16 +1250,45 @@ async def slip_history(limit: int = 60, user: dict = Depends(get_current_user_de
     for date in sorted(by_date.keys(), reverse=True)[:limit]:
         picks = [Pick(**p) for p in by_date[date]]
         slip = build_slip(date, picks, sportybet_url=sb_url, manual_code=code_by_date.get(date, ""))
-        if slip:
-            d = slip.model_dump()
-            # legs status from picks
-            d["status_summary"] = {
-                "won": sum(1 for p in picks if p.status == "won"),
-                "lost": sum(1 for p in picks if p.status == "lost"),
-                "void": sum(1 for p in picks if p.status == "void"),
-                "pending": sum(1 for p in picks if p.status == "pending"),
-            }
-            out.append(d)
+        if not slip:
+            continue
+        d = slip.model_dump()
+        d["status_summary"] = {
+            "won": sum(1 for p in picks if p.status == "won"),
+            "lost": sum(1 for p in picks if p.status == "lost"),
+            "void": sum(1 for p in picks if p.status == "void"),
+            "pending": sum(1 for p in picks if p.status == "pending"),
+        }
+        if not has_full_access:
+            # Redact same way as the today-teaser: keep odds, hide the bet.
+            d["legs"] = [{
+                "match": "🔒 Locked",
+                "league": "🔒 Locked",
+                "country": "",
+                "country_code": "",
+                "sport": leg["sport"],
+                "market": "🔒 Locked",
+                "selection_label": "🔒 Locked",
+                "odds": leg["odds"],
+                "confidence": 0,
+                "edge_pct": 0,
+                "expected_value": 0,
+                "kickoff": leg.get("kickoff", ""),
+                "reasoning": "",
+                # Per-leg WIN/LOSS so the preview is actually exciting
+                "status": p_status,
+            } for leg, p_status in zip(
+                d.get("legs", []),
+                [p.status for p in picks],
+            )]
+            d["sportybet_code"] = ""
+            d["summary"] = (
+                f"{slip.leg_count}-leg slip · {d['status_summary']['won']}W "
+                f"{d['status_summary']['lost']}L · combined "
+                f"{slip.combined_odds:.2f}. Subscribe to see the picks."
+            )
+            d["locked"] = True
+        out.append(d)
     return out
 
 

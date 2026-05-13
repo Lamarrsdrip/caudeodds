@@ -175,28 +175,70 @@ export default function Dashboard() {
 
         {tab === "history" && (
           <div className="space-y-5 sm:space-y-6">
-            <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight">SLIP HISTORY</h1>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight">SLIP HISTORY</h1>
+              {history.length > 0 && history[0]?.locked && (
+                <Link to="/subscription" data-testid="history-unlock-cta"
+                      className="bg-[#00ff66] text-[#050505] font-mono uppercase tracking-widest text-[11px] px-4 py-2 hover:bg-[#f5f5f5]">
+                  Subscribe to see the picks →
+                </Link>
+              )}
+            </div>
+            {history.length > 0 && history[0]?.locked && (
+              <div className="co-card p-4 border-l-4 border-l-[#ffb800]" data-testid="history-locked-banner">
+                <p className="text-sm text-[#a3a3a3] leading-relaxed">
+                  Your subscription is inactive. These are the slips you missed — odds and win/loss are real, picks are blurred.
+                  <span className="text-[#f5f5f5] font-bold"> Resubscribe to stop missing out.</span>
+                </p>
+              </div>
+            )}
             {history.length === 0 ? (
               <div className="co-card p-12 text-center font-mono text-[10px] uppercase tracking-widest text-[#525252]">
                 No history yet
               </div>
-            ) : history.map(s => (
-              <div key={s.date} className="co-card p-5" data-testid={`hist-slip-${s.date}`}>
-                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                  <div>
-                    <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">{s.date}</div>
-                    <div className="font-heading font-bold">{s.leg_count}-leg @ {s.combined_odds?.toFixed(2)}</div>
+            ) : history.map(s => {
+              const won = s.status_summary?.won || 0;
+              const lost = s.status_summary?.lost || 0;
+              const pending = s.status_summary?.pending || 0;
+              const allWon = lost === 0 && pending === 0 && won > 0;
+              return (
+                <div key={s.date} className="co-card p-5" data-testid={`hist-slip-${s.date}`}>
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <div>
+                      <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">{s.date}</div>
+                      <div className="font-heading font-bold">
+                        {s.leg_count}-leg @ {s.combined_odds?.toFixed(2)}
+                        {allWon && <span className="ml-2 px-2 py-0.5 bg-[#00ff66] text-[#050505] font-mono text-[10px] uppercase tracking-widest font-bold">CASHED</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {won > 0 && <span className="co-tag co-tag-pos">{won} W</span>}
+                      {lost > 0 && <span className="co-tag co-tag-neg">{lost} L</span>}
+                      {s.status_summary?.void > 0 && <span className="co-tag">{s.status_summary.void} V</span>}
+                      {pending > 0 && <span className="co-tag co-tag-warn">{pending} P</span>}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {s.status_summary?.won > 0 && <span className="co-tag co-tag-pos">{s.status_summary.won} W</span>}
-                    {s.status_summary?.lost > 0 && <span className="co-tag co-tag-neg">{s.status_summary.lost} L</span>}
-                    {s.status_summary?.void > 0 && <span className="co-tag">{s.status_summary.void} V</span>}
-                    {s.status_summary?.pending > 0 && <span className="co-tag co-tag-warn">{s.status_summary.pending} P</span>}
-                  </div>
+                  {s.locked && s.legs?.length > 0 && (
+                    <div className="border-t border-[#1a1a1a] pt-3 mt-2 space-y-2">
+                      {s.legs.map((l, i) => {
+                        const map = { won: ["bg-[#00ff66] text-[#050505]", "✓ WON"], lost: ["bg-[#ff3333] text-[#f5f5f5]", "✗ LOST"], void: ["bg-[#525252] text-[#f5f5f5]", "VOID"], pending: ["bg-[#ffb800] text-[#050505]", "PENDING"] };
+                        const [pillCls, pillLabel] = map[l.status] || map.pending;
+                        return (
+                          <div key={`${s.date}-leg-${i}`} className="flex items-center gap-3">
+                            <span className="font-mono text-[10px] text-[#525252] uppercase w-6 shrink-0">{String(i + 1).padStart(2, "0")}</span>
+                            <span className="font-mono text-[10px] uppercase tracking-widest text-[#a3a3a3] w-16 shrink-0">{l.sport}</span>
+                            <span className="font-mono text-xs text-[#525252] blur-sm select-none flex-1">████████ pick</span>
+                            <span className="font-mono text-sm text-[#f5f5f5] w-12 text-right">{l.odds?.toFixed(2)}</span>
+                            <span className={`font-mono text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 ${pillCls} w-16 text-center`}>{pillLabel}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="text-xs text-[#a3a3a3] font-mono mt-3">{s.summary}</div>
                 </div>
-                <div className="text-xs text-[#a3a3a3] font-mono">{s.summary}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>

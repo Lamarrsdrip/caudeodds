@@ -164,6 +164,11 @@ Optimisations shipped:
   - Frontend: Register page accepts `?ref=CODE` URL prefill, live-validates with green/red indicators, shows "5 days free unlocked thanks to <name>" bonus banner. New `ReferralCard` on the Dashboard shows code, share link (one-tap copy), referral count, and the list of referred users with their signup dates.
 - Tests: `backend/tests/test_phase13_referrals.py` (5 tests) and updated `test_phase12_teaser_protection.py` (3 tests) — all green.
 
+### Phase 14 — Custom referral codes + expired-user history preview (2026-05-13)
+- **Custom referral code/word**: new `PUT /api/referral/code` lets users set a vanity code (4–20 chars, A–Z + 0–9, must contain a letter, reserved words like `ADMIN/CLAUDEODDS/FREE/VIP` blocked, uniqueness enforced). Frontend ReferralCard now has a ✏️ pencil edit button → inline input with live normalization, Save/Cancel, and helper text describing the rules.
+- **Expired-user history preview**: `/api/slip/history` no longer returns `402` for expired users. Instead it returns the **same per-leg payload as the teaser** — match/league/market/selection redacted, but **per-leg odds and WIN/LOSS status visible**, plus combined odds and the won/lost summary. The dashboard History tab now shows a "Subscription Inactive" banner with a "Subscribe to see the picks →" CTA and renders each leg with a blurred pick + the leg's real odds + a green `✓ WON` / red `✗ LOST` pill. Active subscribers still see the full unredacted history exactly as before.
+- Tests: `backend/tests/test_phase14_custom_code_and_history.py` (9 tests) — all green. Full referral + teaser + history regression now stands at **17 passing**.
+
 ## Validated
 - 100% pass on iter_3 / iter_4 / iter_5 / **iter_6** testing-agent runs (32 backend pytest passing + 3 expected skips; comprehensive frontend audit desktop+mobile 390x844, 0 console errors across /, /dashboard, /admin/predictions, /pricing, /subscription)
 - iter_6: Phase-5 features (PWA auto-update / Public ROI / Next-day rollover) all verified end-to-end via public URL
