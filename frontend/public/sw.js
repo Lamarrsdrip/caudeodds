@@ -5,7 +5,7 @@
 // fresh code without users needing to remove/re-add the PWA. The build script
 // stamps this via `__BUILD_HASH__` if available, otherwise we fall back to
 // the literal string (which is fine — clients detect the SW byte change).
-const BUILD_VERSION = "co-v3-2026-05-10";
+const BUILD_VERSION = "co-v4-2026-05-14";
 
 self.addEventListener("install", (event) => {
   // Activate the new SW immediately instead of waiting for tabs to close.

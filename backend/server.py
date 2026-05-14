@@ -15,8 +15,10 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
 from starlette.middleware.cors import CORSMiddleware  # noqa: E402
+from starlette.staticfiles import StaticFiles  # noqa: E402
 
 from auth import (  # noqa: E402
     admin_required,
@@ -1547,3 +1549,53 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ------------------ Frontend / Deployment Fallback ------------------
+#
+# Emergent normally serves the React app separately, but some preview/custom-domain
+# configurations can hit the backend root. Without this, FastAPI returns its
+# default {"detail":"Not Found"}, which looks like the whole website is broken.
+# If a production CRA build exists, serve it. Otherwise return a clear health
+# payload that points operators to the frontend URL instead of a confusing 404.
+FRONTEND_BUILD_DIR = ROOT_DIR.parent / "frontend" / "build"
+
+if (FRONTEND_BUILD_DIR / "index.html").exists():
+    static_dir = FRONTEND_BUILD_DIR / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="frontend-static")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API route not found")
+        requested = (FRONTEND_BUILD_DIR / full_path).resolve()
+        try:
+            requested.relative_to(FRONTEND_BUILD_DIR.resolve())
+        except ValueError:
+            requested = FRONTEND_BUILD_DIR / "index.html"
+        if requested.is_file():
+            return FileResponse(str(requested))
+        return FileResponse(str(FRONTEND_BUILD_DIR / "index.html"))
+else:
+    @app.get("/")
+    async def app_root():
+        return JSONResponse({
+            "ok": True,
+            "service": "ClaudeOdds API",
+            "message": "Backend is running. Open the frontend preview/live URL for the web app.",
+            "frontend_url": os.environ.get("FRONTEND_URL", ""),
+            "api": "/api",
+        })
+
+    @app.get("/{full_path:path}")
+    async def app_fallback(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API route not found")
+        return JSONResponse({
+            "ok": True,
+            "service": "ClaudeOdds API",
+            "message": "Frontend build is not mounted on this backend process.",
+            "frontend_url": os.environ.get("FRONTEND_URL", ""),
+            "path": f"/{full_path}",
+        })
