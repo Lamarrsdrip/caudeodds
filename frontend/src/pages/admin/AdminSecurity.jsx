@@ -27,6 +27,7 @@ export default function AdminSecurity() {
 
       <ChangePasswordCard />
       <SmtpCard />
+      <BulkEmailCard />
       <EmailLogsCard />
       <LoginActivityCard />
     </div>
@@ -157,6 +158,74 @@ function SmtpCard() {
           </div>
           <p className="text-xs text-[#a3a3a3] leading-relaxed">{status.message}</p>
           <p className="text-[10px] text-[#525252] mt-2 font-mono">{status.host || "—"}:{status.port || "—"} · {status.user || "—"}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BulkEmailCard() {
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState("");
+  const [audience, setAudience] = useState("active");
+  const [preview, setPreview] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const payload = { subject, message, audience };
+  const previewEmail = async () => {
+    setBusy(true);
+    try {
+      const r = await api.adminBulkEmail({ ...payload, preview: true });
+      setPreview(r.preview || "");
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setBusy(false); }
+  };
+  const sendBulk = async () => {
+    if (!window.confirm(`Send this announcement to ${audience} users?`)) return;
+    setBusy(true);
+    try {
+      const r = await api.adminBulkEmail(payload);
+      if (r.failed) toast.error(`Sent ${r.sent}, failed ${r.failed}`);
+      else toast.success(`Announcement sent to ${r.sent} users`);
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="co-card p-5 space-y-4" data-testid="bulk-email-card">
+      <div className="flex items-center gap-2">
+        <Send className="w-4 h-4 text-[#00ff66]" />
+        <div className="font-heading font-bold">Bulk Announcement</div>
+      </div>
+      <div className="grid sm:grid-cols-[160px_1fr] gap-3">
+        <select value={audience} onChange={(e) => setAudience(e.target.value)}
+                className="bg-[#0a0a0a] border border-[#262626] focus:border-[#00ff66] outline-none px-3 py-2 font-mono text-xs">
+          <option value="active">Active users</option>
+          <option value="trial">Trial users</option>
+          <option value="all">All users</option>
+        </select>
+        <input value={subject} onChange={(e) => setSubject(e.target.value)}
+               placeholder="Subject"
+               className="bg-[#0a0a0a] border border-[#262626] focus:border-[#00ff66] outline-none px-3 py-2 font-mono text-xs" />
+      </div>
+      <textarea value={message} onChange={(e) => setMessage(e.target.value)}
+                placeholder="Write announcement, subscription update, promo, or important notice..."
+                rows={5}
+                className="w-full bg-[#0a0a0a] border border-[#262626] focus:border-[#00ff66] outline-none px-3 py-2 font-mono text-xs" />
+      <div className="flex flex-wrap gap-2">
+        <button onClick={previewEmail} disabled={busy}
+                className="border border-[#262626] hover:bg-[#1a1a1a] font-mono text-xs uppercase tracking-widest px-4 py-2 disabled:opacity-50">
+          Preview
+        </button>
+        <button onClick={sendBulk} disabled={busy}
+                className="bg-[#00ff66] text-[#050505] font-mono text-xs uppercase tracking-widest px-4 py-2 hover:bg-[#f5f5f5] disabled:opacity-50">
+          Send Announcement
+        </button>
+      </div>
+      {preview && (
+        <div className="border border-[#262626] bg-black/30 p-3">
+          <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482] mb-2">Email preview</div>
+          <div className="max-h-72 overflow-auto" dangerouslySetInnerHTML={{ __html: preview }} />
         </div>
       )}
     </div>

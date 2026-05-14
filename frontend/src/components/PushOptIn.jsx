@@ -12,7 +12,7 @@ function urlB64ToUint8Array(b64) {
   return out;
 }
 
-export default function PushOptIn({ vapidPublicKey, compact = false }) {
+export default function PushOptIn({ vapidPublicKey, compact = false, onStatusChange }) {
   const [supported, setSupported] = useState(false);
   const [permission, setPermission] = useState(typeof Notification !== "undefined" ? Notification.permission : "default");
   const [subscribed, setSubscribed] = useState(false);
@@ -21,20 +21,26 @@ export default function PushOptIn({ vapidPublicKey, compact = false }) {
   useEffect(() => {
     const ok = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
     setSupported(ok);
-    if (!ok) return;
+    if (!ok) {
+      onStatusChange?.(false);
+      return;
+    }
     (async () => {
       try {
         const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
         await navigator.serviceWorker.ready;
         const sub = await reg.pushManager.getSubscription();
         setSubscribed(!!sub);
+        onStatusChange?.(!!sub);
       } catch (e) {
         // SW failed to register (HTTP-only context, blocked, or sandboxed iframe).
         // Surface to console so admins debugging push can spot the cause; UI just hides.
         console.warn("Service worker registration failed:", e?.message || e);
       }
+        onStatusChange?.(false);
+      }
     })();
-  }, []);
+  }, [onStatusChange]);
 
   if (!supported || !vapidPublicKey) return null;
 
@@ -57,6 +63,7 @@ export default function PushOptIn({ vapidPublicKey, compact = false }) {
       }
       await api.pushSubscribe(sub.toJSON());
       setSubscribed(true);
+      onStatusChange?.(true);
       toast.success("Push notifications enabled — you'll get pinged when slips drop");
     } catch (e) {
       toast.error(formatApiError(e) || "Could not enable notifications");
@@ -73,6 +80,7 @@ export default function PushOptIn({ vapidPublicKey, compact = false }) {
         await sub.unsubscribe();
       }
       setSubscribed(false);
+      onStatusChange?.(false);
       toast.success("Notifications disabled");
     } catch (e) {
       toast.error(formatApiError(e) || "Could not disable notifications");

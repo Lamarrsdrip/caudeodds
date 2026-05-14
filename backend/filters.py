@@ -46,9 +46,11 @@ def _check(fx: Fixture, date_str: str) -> Tuple[bool, str | None, str | None]:
     if delta > 10.0 and fx.liquidity_score < 0.70:
         return False, "TRAP", f"Line moved {delta:.1f}% on thin book — possible trap"
 
-    # 4. Injury chaos: 4+ injuries combined
-    if len(fx.injuries) >= 4:
-        return False, "INJURY_CHAOS", f"{len(fx.injuries)} key injuries — too many unknowns"
+    # 4. Injury chaos: 4+ known injuries combined. Include API-Football's real
+    # injury feed, not just the legacy fixture-level list.
+    real_injuries = len(fx.injuries or []) + len(fx.af_home_injuries or []) + len(fx.af_away_injuries or [])
+    if real_injuries >= 4:
+        return False, "INJURY_CHAOS", f"{real_injuries} known injuries — too many unknowns"
 
     # 5. Conflicting public vs sharp signal too extreme
     sharp_home = fx.sharp_money_pct.get("home", 50)

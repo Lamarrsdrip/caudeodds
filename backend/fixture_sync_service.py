@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -392,8 +393,10 @@ async def run_ai_for_new_odds(db, date_str: str, settings: Optional[Settings] = 
                 return fx
     kept = await asyncio.gather(*[_enrich(fx) for fx in kept])
 
-    # Run ensemble concurrently (capped)
-    sem = asyncio.Semaphore(8)
+    # Run ensemble concurrently (capped). This shares the same throttle as the
+    # manual pipeline so scheduled sync cannot burst LLM/provider limits.
+    llm_concurrency = max(1, min(12, int(os.environ.get("PIPELINE_LLM_CONCURRENCY", "6"))))
+    sem = asyncio.Semaphore(llm_concurrency)
     async def _analyze(fx):
         async with sem:
             return fx, await run_ensemble(fx, db=db)

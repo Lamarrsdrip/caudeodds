@@ -604,6 +604,62 @@ async def admin_smtp_send_test(payload: dict, admin: dict = Depends(admin_requir
     return log
 
 
+@api.post("/admin/emails/bulk")
+async def admin_bulk_email(payload: dict, admin: dict = Depends(admin_required)):
+    """Preview or send an admin announcement to users with delivery logs."""
+    subject = (payload.get("subject") or "").strip()
+    message = (payload.get("message") or "").strip()
+    audience = (payload.get("audience") or "active").strip().lower()
+    preview = bool(payload.get("preview", False))
+    if len(subject) < 3 or len(subject) > 120:
+        raise HTTPException(status_code=400, detail="Subject must be 3-120 characters")
+    if len(message) < 10 or len(message) > 5000:
+        raise HTTPException(status_code=400, detail="Message must be 10-5000 characters")
+    if audience not in {"all", "active", "trial"}:
+        raise HTTPException(status_code=400, detail="Audience must be all, active, or trial")
+
+    safe_subject = subject.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    escaped = (message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+               .replace("\n", "<br/>"))
+    html = (
+        "<div style='font-family:Inter,Arial,sans-serif;background:#0a0a0a;color:#f5f5f5;"
+        "padding:24px;max-width:600px'>"
+        f"<h1 style='color:#00ff66;font-size:22px;margin:0 0 16px'>{safe_subject}</h1>"
+        f"<p style='line-height:1.6;color:#ddd'>{escaped}</p>"
+        "<p style='color:#888;font-size:12px;margin-top:32px'>"
+        "You are receiving this because you have a ClaudeOdds account. "
+        "18+ only. Bet responsibly. To stop receiving service announcements, contact support."
+        "</p></div>"
+    )
+    if preview:
+        return {"ok": True, "preview": html}
+
+    q = {"email": {"$exists": True, "$ne": ""}, "role": {"$ne": "admin"}}
+    if audience in {"active", "trial"}:
+        q["subscription_status"] = audience
+    recipients = await users_col.find(q, {"_id": 0, "id": 1, "email": 1}).limit(500).to_list(500)
+    if not recipients:
+        return {"ok": True, "sent": 0, "failed": 0, "message": "No users matched this audience."}
+
+    cfg_doc = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
+    from email_service import send_email
+    sent = failed = 0
+    sample_errors = []
+    for recipient in recipients:
+        log = await send_email(
+            db, cfg_doc, recipient["email"], subject, html,
+            kind="admin_bulk",
+            meta={"triggered_by": admin["id"], "audience": audience, "user_id": recipient.get("id")},
+        )
+        if log.get("status") == "sent":
+            sent += 1
+        else:
+            failed += 1
+            if len(sample_errors) < 3:
+                sample_errors.append({"to": recipient["email"], "error": log.get("error") or log.get("error_class")})
+    return {"ok": failed == 0, "sent": sent, "failed": failed, "errors": sample_errors}
+
+
 @api.get("/admin/emails/logs")
 async def admin_email_logs(limit: int = 100, _: dict = Depends(admin_required)):
     limit = max(1, min(int(limit or 100), 500))

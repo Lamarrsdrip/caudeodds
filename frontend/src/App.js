@@ -14,6 +14,7 @@ import Pricing from "@/pages/Pricing";
 import Dashboard from "@/pages/Dashboard";
 import Subscription from "@/pages/Subscription";
 import PaymentCallback from "@/pages/PaymentCallback";
+import LegalPage from "@/pages/LegalPage";
 import AdminLayout, { AdminOverview } from "@/pages/admin/AdminLayout";
 import AdminUsers from "@/pages/admin/AdminUsers";
 import AdminPayments from "@/pages/admin/AdminPayments";
@@ -45,6 +46,8 @@ export default function App() {
           <Route path="/login" element={<Login/>}/>
           <Route path="/register" element={<Register/>}/>
           <Route path="/payment/callback" element={<PaymentCallback/>}/>
+          <Route path="/terms" element={<LegalPage type="terms"/>}/>
+          <Route path="/privacy" element={<LegalPage type="privacy"/>}/>
 
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard/></ProtectedRoute>}/>
           <Route path="/subscription" element={<ProtectedRoute><Subscription/></ProtectedRoute>}/>

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import AppHeader from "@/components/AppHeader";
 import { useAuth, formatApiError } from "@/contexts/AuthContext";
@@ -8,6 +8,7 @@ import EmrizFooter from "@/components/EmrizFooter";
 export default function Login() {
   const { login } = useAuth();
   const nav = useNavigate();
+  const [params] = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -18,7 +19,9 @@ export default function Login() {
     try {
       const u = await login(email, password);
       toast.success("Logged in");
-      nav(u.role === "admin" ? "/admin" : "/dashboard");
+      const next = params.get("next");
+      const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : "";
+      nav(safeNext || (u.role === "admin" ? "/admin" : "/dashboard"));
     } catch (err) {
       toast.error(formatApiError(err));
     } finally { setBusy(false); }

@@ -77,11 +77,11 @@ def evaluate(
 
     if quant is None or reasoning is None:
         # Could be due to research-quality gate
-        if research is not None and float(research.get("research_quality_score", 0)) < 25:
+        if research is not None and float(research.get("research_quality_score", 0)) < 50:
             return None, RejectionLog(
                 date=date_str, match=match, sport=fx.sport,
                 reason_code="LOW_RESEARCH",
-                reason=f"Research quality {research.get('research_quality_score', 0):.0f}/100 — insufficient verifiable facts",
+                reason=f"Research quality {research.get('research_quality_score', 0):.0f}/100 — insufficient verifiable facts for a paid pick",
             )
         return None, RejectionLog(
             date=date_str, match=match, sport=fx.sport,
@@ -160,8 +160,9 @@ def evaluate(
                             f"(data_richness {richness_early:.2f} < 0.60). Home edge "
                             f"+5-8pp makes this a coin-flip at best."),
                 )
-            # Add 1pp EV penalty to away picks (counter-bias)
-            quant.expected_value -= 0.01
+            # Away picks are re-checked after realism calibration below. Applying
+            # a raw EV mutation here is misleading because calibrated EV is
+            # recomputed from probability and bookmaker odds.
 
     # ── ODDS-DRIFT / TRAP DETECTION ────────────────────────────────────────
     # If the bookmaker line has drifted hard against our pick in the last hour
@@ -259,6 +260,28 @@ def evaluate(
                     f"Original AI fair_prob {raw_fair_prob:.3f} clamped to {calibrated_fair_prob:.3f} "
                     f"(book implies {book_implied:.3f}; max shift {MAX_PROB_SHIFT:.2f})"),
         )
+
+    if richness < 0.4:
+        stable_market = fx.liquidity_score >= 0.75 and (fx.volatility or 0.5) <= 0.25
+        strong_market_signal = sharp_for_side >= 60 and calibrated_edge_pct >= 2.0
+        if not (stable_market and strong_market_signal):
+            return None, RejectionLog(
+                date=date_str, match=match, sport=fx.sport,
+                reason_code="PRICE_ONLY_WEAK_EDGE",
+                reason=(f"Data richness {richness:.2f} is price-only. Refusing to publish without "
+                        f"stable liquidity/volatility and sharp support (liquidity {fx.liquidity_score:.2f}, "
+                        f"volatility {(fx.volatility or 0):.2f}, sharp {sharp_for_side}%, edge {calibrated_edge_pct:.2f}%)."),
+            )
+
+    if fx.sport == "football" and quant_side == "AWAY":
+        away_min_ev = max(settings.min_ev + 0.01, 0.035)
+        if calibrated_ev < away_min_ev or calibrated_edge_pct < 2.0:
+            return None, RejectionLog(
+                date=date_str, match=match, sport=fx.sport,
+                reason_code="AWAY_EDGE_TOO_THIN",
+                reason=(f"AWAY pick needs stronger proof after home-edge calibration "
+                        f"(EV {calibrated_ev:.3f} < {away_min_ev:.3f} or edge {calibrated_edge_pct:.2f}% < 2.00%)."),
+            )
 
     # Cap displayed confidence based on agreement + calibrated edge
     # (a 4% edge is exceptional in sports markets — anything claiming

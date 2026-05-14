@@ -82,6 +82,7 @@ export const api = {
     client.get(`/admin/activity?limit=${limit}${userId ? `&user_id=${userId}` : ""}`).then(r => r.data),
   adminSmtpTest: () => client.post(`/admin/smtp/test`).then(r => r.data),
   adminSmtpSendTest: (to) => client.post(`/admin/smtp/send-test`, { to: to || "" }).then(r => r.data),
+  adminBulkEmail: (payload) => client.post(`/admin/emails/bulk`, payload).then(r => r.data),
   adminEmailLogs: (limit = 100) => client.get(`/admin/emails/logs?limit=${limit}`).then(r => r.data),
   // Referrals
   referralMe: () => client.get(`/referral/me`).then(r => r.data),

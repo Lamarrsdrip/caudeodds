@@ -91,10 +91,17 @@ async def _get(path: str, params: Optional[Dict] = None) -> Tuple[List, Dict]:
     return r.json(), dict(r.headers)
 
 
-async def list_active_sports() -> List[Dict]:
+async def list_active_sports(db=None) -> List[Dict]:
     """Get all in-season sports. Helps us auto-skip out-of-season leagues."""
+    if db is not None:
+        cached = await _cache_get(db, "odds_active_sports", max_age_seconds=6 * 3600)
+        if cached is not None:
+            return cached
     body, _ = await _get("/sports", params={"all": "false"})
-    return body or []
+    payload = body or []
+    if db is not None:
+        await _cache_put(db, "odds_active_sports", payload)
+    return payload
 
 
 async def _cache_get(db, key: str, max_age_seconds: int) -> Optional[list]:
@@ -425,7 +432,7 @@ async def fetch_real_fixtures_for_today(date_str: str, max_per_sport: int = 7, d
 
     # Discover which leagues are in-season right now to skip out-of-season requests
     try:
-        active = await list_active_sports()
+        active = await list_active_sports(db=db)
         active_keys = {s.get("key") for s in active}
     except TheOddsAPIError as e:
         logger.error("Could not list active sports: %s", e)

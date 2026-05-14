@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import EmrizFooter from "@/components/EmrizFooter";
 import DailySlip from "@/components/DailySlip";
@@ -8,76 +8,30 @@ import UpcomingFixtures from "@/components/UpcomingFixtures";
 import ReferralCard from "@/components/ReferralCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
-import { Calendar, Clock, ShieldCheck, BellRing, ChevronRight, History, Sparkles, Trophy, Zap } from "lucide-react";
+import { ShieldCheck, BellRing, ChevronRight, History, Sparkles, Trophy, Zap, CalendarDays } from "lucide-react";
 
-function SubscriptionBanner({ user }) {
-  const status = user.subscription_status;
-  const ends = user.subscription_ends_at || user.trial_ends_at;
-  const daysLeft = ends ? Math.max(0, Math.ceil((new Date(ends) - new Date()) / (1000 * 60 * 60 * 24))) : 0;
-  if (status === "active") {
-    return (
-      <div className="co-glass rounded-[8px] p-4 flex items-center justify-between gap-4" data-testid="sub-banner-active">
-        <div className="flex items-center gap-3">
-          <span className="w-10 h-10 rounded-[8px] bg-[#00ff66]/12 grid place-items-center shrink-0">
-            <ShieldCheck className="w-5 h-5 text-[#00ff66]" />
-          </span>
-          <div>
-            <div className="font-heading font-bold">Active Subscription</div>
-            <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482]">
-              {daysLeft} day{daysLeft === 1 ? "" : "s"} remaining · renews {new Date(ends).toLocaleDateString()}
-            </div>
-          </div>
-        </div>
-        <Link to="/subscription" className="font-mono text-[10px] uppercase tracking-widest text-[#aeb8c2] hover:text-[#00ff66] inline-flex items-center gap-1">Manage <ChevronRight className="w-3 h-3"/></Link>
-      </div>
-    );
-  }
-  if (status === "trial") {
-    return (
-      <div className="co-soft-band rounded-[8px] p-4 flex items-center justify-between gap-4 border-[#00ff66]" data-testid="sub-banner-trial">
-        <div className="flex items-center gap-3">
-          <span className="w-10 h-10 rounded-[8px] bg-[#00ff66]/14 grid place-items-center shrink-0">
-            <Clock className="w-5 h-5 text-[#00ff66]" />
-          </span>
-          <div>
-            <div className="font-heading font-bold">Free Trial Active</div>
-            <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482]">{daysLeft} day{daysLeft === 1 ? "" : "s"} remaining</div>
-          </div>
-        </div>
-        <Link to="/subscription" data-testid="upgrade-cta" className="co-primary-action rounded-[6px] font-mono uppercase tracking-widest text-[11px] px-4 py-3">Upgrade</Link>
-      </div>
-    );
-  }
-  return (
-    <div className="co-card p-4 flex items-center justify-between gap-4 border-[#ff3333]" data-testid="sub-banner-expired">
-      <div className="flex items-center gap-3">
-        <span className="w-10 h-10 rounded-[8px] bg-[#ff3333]/12 grid place-items-center shrink-0">
-          <Calendar className="w-5 h-5 text-[#ff3333]" />
-        </span>
-        <div>
-          <div className="font-heading font-bold">Subscription Inactive</div>
-          <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482]">Subscribe to unlock daily slips</div>
-        </div>
-      </div>
-      <Link to="/subscription" data-testid="subscribe-cta" className="co-primary-action rounded-[6px] font-mono uppercase tracking-widest text-[11px] px-4 py-3">Subscribe</Link>
-    </div>
-  );
-}
-
-function HeroMetric({ icon: Icon, label, value, tone = "text-[#f5f5f5]" }) {
-  return (
-    <div className="co-stat-tile p-4">
+function HeroMetric({ icon: Icon, label, value, sub, tone = "text-[#f5f5f5]", to, onClick, children, testid }) {
+  const content = (
+    <>
       <div className="flex items-center justify-between gap-3">
         <span className="font-mono text-[9px] uppercase tracking-widest text-[#667482]">{label}</span>
         <Icon className="w-4 h-4 text-[#48a7ff]" />
       </div>
-      <div className={`font-mono text-2xl font-bold mt-4 ${tone}`}>{value}</div>
-    </div>
+      <div className={`font-mono text-xl sm:text-2xl font-bold mt-3 ${tone}`}>{value}</div>
+      {sub && <div className="mt-1 font-mono text-[9px] uppercase tracking-widest text-[#667482] leading-relaxed">{sub}</div>}
+      {children && <div className="mt-3">{children}</div>}
+    </>
   );
+  const cls = "co-stat-tile block p-3 sm:p-4 text-left min-h-[112px] transition-colors hover:border-[#00ff66]/35";
+  if (to) return <Link to={to} data-testid={testid} className={cls}>{content}</Link>;
+  if (onClick) return <button type="button" onClick={onClick} data-testid={testid} className={cls}>{content}</button>;
+  return <div data-testid={testid} className={cls}>{content}</div>;
 }
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [slip, setSlip] = useState(null);
   const [locked, setLocked] = useState(true);
   const [awaitingData, setAwaitingData] = useState(null);
@@ -87,6 +41,7 @@ export default function Dashboard() {
   const [history, setHistory] = useState([]);
   const [tab, setTab] = useState("today");
   const [vapid, setVapid] = useState("");
+  const [pushOn, setPushOn] = useState(false);
 
   useEffect(() => {
     api.slipToday().then(d => {
@@ -113,6 +68,24 @@ export default function Dashboard() {
     api.publicConfig().then(c => setVapid(c.vapid_public_key || "")).catch(() => {});
   }, [user?.subscription_status]);
 
+  useEffect(() => {
+    if (location.hash === "#fixtures") setTab("fixtures");
+    else if (location.hash === "#history") setTab("history");
+    else setTab("today");
+  }, [location.hash]);
+
+  const changeTab = (nextTab) => {
+    setTab(nextTab);
+    navigate(nextTab === "today" ? "/dashboard" : `/dashboard#${nextTab}`, { replace: false });
+  };
+
+  const accessStatus = user?.subscription_status || "trial";
+  const accessEnd = user?.subscription_ends_at || user?.trial_ends_at;
+  const accessDays = accessEnd ? Math.max(0, Math.ceil((new Date(accessEnd) - new Date()) / (1000 * 60 * 60 * 24))) : 0;
+  const accessRenewal = accessEnd ? new Date(accessEnd).toLocaleDateString() : "not set";
+  const accessLabel = accessStatus === "active" ? "active" : accessStatus === "trial" ? "trial" : "expired";
+  const accessTone = accessLabel === "expired" ? "text-[#ff3333]" : "text-[#00ff66]";
+
   const headingLabel = isTomorrow ? "TOMORROW'S COMBINED SLIP" : "TODAY'S COMBINED SLIP";
   const subLabel = awaitingTomorrow
     ? "Today's matches are done — tomorrow's slip coming soon"
@@ -126,52 +99,59 @@ export default function Dashboard() {
     <div className="co-app-shell text-[#f5f5f5]">
       <AppHeader />
       <main className="max-w-[1300px] mx-auto px-4 sm:px-6 py-5 sm:py-10 space-y-5 sm:space-y-6">
-        <section className="co-soft-band rounded-[8px] p-5 sm:p-7 overflow-hidden">
+        <section className="co-soft-band rounded-[8px] p-4 sm:p-5 overflow-hidden">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1 font-mono text-[9px] uppercase tracking-widest text-[#aeb8c2]">
                 <Sparkles className="w-3 h-3 text-[#00ff66]" /> Live intelligence hub
               </div>
-              <h1 className="font-heading font-black text-3xl sm:text-5xl tracking-tight mt-4 leading-none">
+              <h1 className="font-heading font-black text-2xl sm:text-4xl tracking-tight mt-3 leading-none">
                 Your betting command center
               </h1>
-              <p className="mt-3 max-w-2xl text-sm sm:text-base text-[#aeb8c2] leading-relaxed">
-                Daily slip, fixture status, subscription, alerts, and referral rewards are now shaped for phone-first use.
+              <p className="mt-2 max-w-2xl text-sm text-[#aeb8c2] leading-relaxed">
+                Slip, fixtures, alerts, and access in one clean mobile dashboard.
               </p>
             </div>
             <div className="hidden sm:grid w-16 h-16 rounded-[8px] bg-[#00ff66] text-[#050607] place-items-center shrink-0">
               <Zap className="w-8 h-8" />
             </div>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
-            <HeroMetric icon={Trophy} label="Slip" value={slip ? `${slip.leg_count || 0} legs` : "Pending"} />
-            <HeroMetric icon={Zap} label="Odds" value={slip?.combined_odds ? slip.combined_odds.toFixed(2) : (slip?.combined_odds_range || "Locked")} />
-            <HeroMetric icon={BellRing} label="Alerts" value={vapid ? "Ready" : "Quiet"} tone={vapid ? "text-[#00ff66]" : "text-[#ffb800]"} />
-            <HeroMetric icon={ShieldCheck} label="Access" value={user?.subscription_status || "trial"} />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
+            <HeroMetric icon={Trophy} label="Slip" value={slip ? `${slip.leg_count || 0} legs` : "Pending"} testid="status-slip" />
+            <HeroMetric icon={Zap} label="Odds" value={slip?.combined_odds ? slip.combined_odds.toFixed(2) : (slip?.combined_odds_range || "Locked")} testid="status-odds" />
+            <HeroMetric
+              icon={BellRing}
+              label="Alerts"
+              value={vapid ? (pushOn ? "ON" : "OFF") : "Quiet"}
+              sub={vapid ? "Manage push" : "Push unavailable"}
+              tone={vapid ? (pushOn ? "text-[#00ff66]" : "text-[#ffb800]") : "text-[#667482]"}
+              testid="status-alerts"
+            >
+              <PushOptIn vapidPublicKey={vapid} compact onStatusChange={setPushOn} />
+            </HeroMetric>
+            <HeroMetric
+              icon={ShieldCheck}
+              label="Access"
+              value={accessLabel}
+              sub={`${accessDays}d left · ${accessRenewal}`}
+              tone={accessTone}
+              to="/subscription"
+              testid="status-access"
+            >
+              <span className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-[#aeb8c2] hover:text-[#00ff66]">
+                Manage <ChevronRight className="w-3 h-3" />
+              </span>
+            </HeroMetric>
           </div>
         </section>
-
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 items-start">
-          <div className="space-y-4">
-            <SubscriptionBanner user={user} />
-            <PushOptIn vapidPublicKey={vapid} />
-          </div>
-          <div className="co-glass rounded-[8px] p-4 hidden lg:block">
-            <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482]">Session</div>
-            <div className="font-heading font-bold text-lg mt-1 truncate">{user?.email}</div>
-            <div className="mt-3 flex items-center gap-2 text-xs text-[#aeb8c2]">
-              <span className="w-2 h-2 rounded-full bg-[#00ff66]" />
-              Protected PWA session
-            </div>
-          </div>
-        </div>
 
         <div className="co-native-tabs sticky top-[72px] z-20 backdrop-blur-xl">
           {[
             { id: "today", label: "Slip", Icon: Zap },
+            { id: "fixtures", label: "Fixtures", Icon: CalendarDays },
             { id: "history", label: "History", Icon: History },
           ].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} data-testid={`dash-tab-${t.id}`}
+            <button key={t.id} onClick={() => changeTab(t.id)} data-testid={`dash-tab-${t.id}`}
                     className={`co-native-tab font-mono uppercase tracking-widest text-[11px] px-5 py-3 transition-colors whitespace-nowrap inline-flex items-center justify-center gap-2 ${
                       tab === t.id ? "bg-[#00ff66] text-[#050607]" : "text-[#aeb8c2] hover:bg-white/5 hover:text-[#f5f5f5]"
                     }`}>
@@ -217,15 +197,22 @@ export default function Dashboard() {
               <DailySlip slip={slip} locked={locked} onSubscribe={locked ? () => (window.location.href = "/subscription") : null} />
             )}
 
-            {/* Live fixture schedule — never empty, even before odds arrive */}
-            <div className="mt-8" id="fixtures">
-              <UpcomingFixtures />
-            </div>
-
             {/* Refer-a-friend — get more trial / sub days */}
             <div className="mt-8">
               <ReferralCard />
             </div>
+          </div>
+        )}
+
+        {tab === "fixtures" && (
+          <div id="fixtures" className="space-y-4">
+            <div>
+              <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight">FIXTURES</h1>
+              <p className="font-mono text-[10px] uppercase tracking-widest text-[#667482] mt-2">
+                Upcoming matches, data status, and AI analysis queue.
+              </p>
+            </div>
+            <UpcomingFixtures />
           </div>
         )}
 

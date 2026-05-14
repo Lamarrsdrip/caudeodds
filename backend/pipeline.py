@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from typing import List, Tuple
 
@@ -33,8 +34,10 @@ async def run_pipeline(date_str: str, settings: Settings, db=None) -> Tuple[List
     kept, rejections = filter_fixtures(fixtures, date_str)
     logger.info("Filter kept %d / %d fixtures for %s", len(kept), total_fixtures, date_str)
 
-    # Run ensemble concurrently across kept fixtures
-    sem = asyncio.Semaphore(12)  # bump from 6 → 12: same total LLM credit, half wall-time
+    # Run ensemble concurrently across kept fixtures. Keep this bounded so a
+    # force-generate does not burst LLM/API limits or starve normal app traffic.
+    llm_concurrency = max(1, min(12, int(os.environ.get("PIPELINE_LLM_CONCURRENCY", "6"))))
+    sem = asyncio.Semaphore(llm_concurrency)
 
     async def analyze(fx):
         async with sem:

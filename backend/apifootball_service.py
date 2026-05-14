@@ -216,7 +216,7 @@ async def get_team_form(db, team_id: int, league_id: int, last_n: int = 5) -> Op
     return out
 
 
-async def get_team_injuries(db, team_id: int, league_id: int) -> List[Dict]:
+async def get_team_injuries(db, team_id: int, league_id: int) -> Optional[List[Dict]]:
     cache_key = f"injuries_{team_id}_{league_id}"
     cached = await _cache_get(db, cache_key, max_age_seconds=2 * 3600)
     if cached is not None:
@@ -225,7 +225,7 @@ async def get_team_injuries(db, team_id: int, league_id: int) -> List[Dict]:
         body = await _get("/injuries", params={"team": team_id, "league": league_id, "season": SEASON})
     except APIFootballError as e:
         logger.warning("get_team_injuries failed: %s", e)
-        return []
+        return None
     out: List[Dict] = []
     for item in body.get("response", []) or []:
         player = item.get("player") or {}
@@ -502,7 +502,7 @@ async def enrich_fixture(db, sport: str, league_name: str, home: str, away: str)
 
     out.update({
         "home_form": home_form, "away_form": away_form,
-        "home_injuries": home_inj, "away_injuries": away_inj,
+        "home_injuries": home_inj or [], "away_injuries": away_inj or [],
         "h2h": h2h,
         "data_richness": round(min(1.0, richness), 2),
     })

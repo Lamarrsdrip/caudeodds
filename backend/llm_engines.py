@@ -325,23 +325,19 @@ async def run_ensemble(fx: Fixture, db=None) -> tuple[QuantOutput | None, Reason
     if research is None:
         return None, None, None
     quality = float(research.get("research_quality_score", 0))
-    if quality < 25:
-        logger.info("Skipping %s vs %s — research quality %.0f < 25", fx.home, fx.away, quality)
+    if quality < 50:
+        logger.info("Skipping %s vs %s — research quality %.0f < 50", fx.home, fx.away, quality)
         result = (None, None, research)
         if db is not None:
             await _ensemble_cache_put(db, cache_key, result)
         return result
 
-    # Cost optimisation: only run the (expensive) tactical reasoning agent when
-    # research quality is decent. For thin-signal fixtures the quant call alone
-    # is sufficient — they'll likely be rejected by consensus anyway.
+    # Cost optimisation: after the quality gate, run both model views together.
+    # Fixtures below 50 are rejected before this point so we do not pay for a
+    # quant call that cannot become an approved pick.
     quant_task = asyncio.create_task(run_quant(fx, research))
-    if quality >= 50:
-        reason_task = asyncio.create_task(run_reasoning(fx, research))
-        quant, reasoning = await asyncio.gather(quant_task, reason_task)
-    else:
-        quant = await quant_task
-        reasoning = None
+    reason_task = asyncio.create_task(run_reasoning(fx, research))
+    quant, reasoning = await asyncio.gather(quant_task, reason_task)
 
     result = (quant, reasoning, research)
     if db is not None:
