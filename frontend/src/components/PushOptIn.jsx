@@ -96,24 +96,26 @@ export default function PushOptIn({ vapidPublicKey, compact = false }) {
   return (
     <div className="co-card p-4 flex items-center justify-between gap-3" data-testid="push-optin-card">
       <div className="flex items-center gap-3">
-        {subscribed ? <BellRing className="w-5 h-5 text-[#00ff66]"/> : <Bell className="w-5 h-5 text-[#a3a3a3]"/>}
+        <span className="w-10 h-10 rounded-[8px] bg-white/5 border border-white/10 grid place-items-center shrink-0">
+          {subscribed ? <BellRing className="w-5 h-5 text-[#00ff66]"/> : <Bell className="w-5 h-5 text-[#aeb8c2]"/>}
+        </span>
         <div>
           <div className="font-heading font-bold text-sm">
             {subscribed ? "Push notifications ON" : "Get pinged when today's slip drops"}
           </div>
-          <div className="text-xs text-[#525252] font-mono">
+          <div className="text-xs text-[#667482] font-mono">
             {subscribed ? "You'll be notified the moment the SportyBet code is live." : "Real-time alerts on your phone — no need to keep checking."}
           </div>
         </div>
       </div>
       {subscribed ? (
         <button onClick={disable} disabled={busy} data-testid="push-disable"
-          className="border border-[#262626] hover:bg-[#1a1a1a] font-mono text-[11px] uppercase tracking-widest px-3 py-2 inline-flex items-center gap-1">
+          className="co-secondary-action rounded-[6px] font-mono text-[11px] uppercase tracking-widest px-3 py-2 inline-flex items-center gap-1">
           <BellOff className="w-3.5 h-3.5"/> Off
         </button>
       ) : (
         <button onClick={enable} disabled={busy} data-testid="push-enable"
-          className="bg-[#00ff66] text-[#050505] font-mono text-[11px] uppercase tracking-widest px-4 py-2 hover:bg-[#f5f5f5] disabled:opacity-50">
+          className="co-primary-action rounded-[6px] font-mono text-[11px] uppercase tracking-widest px-4 py-2 disabled:opacity-50">
           {busy ? "Enabling…" : "Enable"}
         </button>
       )}

@@ -8,7 +8,7 @@ import UpcomingFixtures from "@/components/UpcomingFixtures";
 import ReferralCard from "@/components/ReferralCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/lib/api";
-import { Calendar, Clock, ShieldCheck } from "lucide-react";
+import { Calendar, Clock, ShieldCheck, BellRing, ChevronRight, History, Sparkles, Trophy, Zap } from "lucide-react";
 
 function SubscriptionBanner({ user }) {
   const status = user.subscription_status;
@@ -16,44 +16,62 @@ function SubscriptionBanner({ user }) {
   const daysLeft = ends ? Math.max(0, Math.ceil((new Date(ends) - new Date()) / (1000 * 60 * 60 * 24))) : 0;
   if (status === "active") {
     return (
-      <div className="co-card p-4 flex items-center justify-between" data-testid="sub-banner-active">
+      <div className="co-glass rounded-[8px] p-4 flex items-center justify-between gap-4" data-testid="sub-banner-active">
         <div className="flex items-center gap-3">
-          <ShieldCheck className="w-5 h-5 text-[#00ff66]" />
+          <span className="w-10 h-10 rounded-[8px] bg-[#00ff66]/12 grid place-items-center shrink-0">
+            <ShieldCheck className="w-5 h-5 text-[#00ff66]" />
+          </span>
           <div>
             <div className="font-heading font-bold">Active Subscription</div>
-            <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">
+            <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482]">
               {daysLeft} day{daysLeft === 1 ? "" : "s"} remaining · renews {new Date(ends).toLocaleDateString()}
             </div>
           </div>
         </div>
-        <Link to="/subscription" className="font-mono text-[10px] uppercase tracking-widest text-[#a3a3a3] hover:text-[#00ff66]">Manage</Link>
+        <Link to="/subscription" className="font-mono text-[10px] uppercase tracking-widest text-[#aeb8c2] hover:text-[#00ff66] inline-flex items-center gap-1">Manage <ChevronRight className="w-3 h-3"/></Link>
       </div>
     );
   }
   if (status === "trial") {
     return (
-      <div className="co-card p-4 flex items-center justify-between border-[#00ff66]" data-testid="sub-banner-trial">
+      <div className="co-soft-band rounded-[8px] p-4 flex items-center justify-between gap-4 border-[#00ff66]" data-testid="sub-banner-trial">
         <div className="flex items-center gap-3">
-          <Clock className="w-5 h-5 text-[#00ff66]" />
+          <span className="w-10 h-10 rounded-[8px] bg-[#00ff66]/14 grid place-items-center shrink-0">
+            <Clock className="w-5 h-5 text-[#00ff66]" />
+          </span>
           <div>
             <div className="font-heading font-bold">Free Trial Active</div>
-            <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">{daysLeft} day{daysLeft === 1 ? "" : "s"} remaining</div>
+            <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482]">{daysLeft} day{daysLeft === 1 ? "" : "s"} remaining</div>
           </div>
         </div>
-        <Link to="/subscription" data-testid="upgrade-cta" className="bg-[#00ff66] text-[#050505] font-mono uppercase tracking-widest text-[11px] px-4 py-2 hover:bg-[#f5f5f5]">Upgrade →</Link>
+        <Link to="/subscription" data-testid="upgrade-cta" className="co-primary-action rounded-[6px] font-mono uppercase tracking-widest text-[11px] px-4 py-3">Upgrade</Link>
       </div>
     );
   }
   return (
-    <div className="co-card p-4 flex items-center justify-between border-[#ff3333]" data-testid="sub-banner-expired">
+    <div className="co-card p-4 flex items-center justify-between gap-4 border-[#ff3333]" data-testid="sub-banner-expired">
       <div className="flex items-center gap-3">
-        <Calendar className="w-5 h-5 text-[#ff3333]" />
+        <span className="w-10 h-10 rounded-[8px] bg-[#ff3333]/12 grid place-items-center shrink-0">
+          <Calendar className="w-5 h-5 text-[#ff3333]" />
+        </span>
         <div>
           <div className="font-heading font-bold">Subscription Inactive</div>
-          <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">Subscribe to unlock daily slips</div>
+          <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482]">Subscribe to unlock daily slips</div>
         </div>
       </div>
-      <Link to="/subscription" data-testid="subscribe-cta" className="bg-[#00ff66] text-[#050505] font-mono uppercase tracking-widest text-[11px] px-4 py-2 hover:bg-[#f5f5f5]">Subscribe →</Link>
+      <Link to="/subscription" data-testid="subscribe-cta" className="co-primary-action rounded-[6px] font-mono uppercase tracking-widest text-[11px] px-4 py-3">Subscribe</Link>
+    </div>
+  );
+}
+
+function HeroMetric({ icon: Icon, label, value, tone = "text-[#f5f5f5]" }) {
+  return (
+    <div className="co-stat-tile p-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-mono text-[9px] uppercase tracking-widest text-[#667482]">{label}</span>
+        <Icon className="w-4 h-4 text-[#48a7ff]" />
+      </div>
+      <div className={`font-mono text-2xl font-bold mt-4 ${tone}`}>{value}</div>
     </div>
   );
 }
@@ -105,21 +123,59 @@ export default function Dashboard() {
         : (slip ? `${slip.leg_count} legs · published by AI ensemble` : "Awaiting today's run…");
 
   return (
-    <div className="min-h-screen bg-[#050505] text-[#f5f5f5]">
+    <div className="co-app-shell text-[#f5f5f5]">
       <AppHeader />
-      <main className="max-w-[1300px] mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-5 sm:space-y-6">
-        <SubscriptionBanner user={user} />
-        <PushOptIn vapidPublicKey={vapid} />
+      <main className="max-w-[1300px] mx-auto px-4 sm:px-6 py-5 sm:py-10 space-y-5 sm:space-y-6">
+        <section className="co-soft-band rounded-[8px] p-5 sm:p-7 overflow-hidden">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1 font-mono text-[9px] uppercase tracking-widest text-[#aeb8c2]">
+                <Sparkles className="w-3 h-3 text-[#00ff66]" /> Live intelligence hub
+              </div>
+              <h1 className="font-heading font-black text-3xl sm:text-5xl tracking-tight mt-4 leading-none">
+                Your betting command center
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm sm:text-base text-[#aeb8c2] leading-relaxed">
+                Daily slip, fixture status, subscription, alerts, and referral rewards are now shaped for phone-first use.
+              </p>
+            </div>
+            <div className="hidden sm:grid w-16 h-16 rounded-[8px] bg-[#00ff66] text-[#050607] place-items-center shrink-0">
+              <Zap className="w-8 h-8" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
+            <HeroMetric icon={Trophy} label="Slip" value={slip ? `${slip.leg_count || 0} legs` : "Pending"} />
+            <HeroMetric icon={Zap} label="Odds" value={slip?.combined_odds ? slip.combined_odds.toFixed(2) : (slip?.combined_odds_range || "Locked")} />
+            <HeroMetric icon={BellRing} label="Alerts" value={vapid ? "Ready" : "Quiet"} tone={vapid ? "text-[#00ff66]" : "text-[#ffb800]"} />
+            <HeroMetric icon={ShieldCheck} label="Access" value={user?.subscription_status || "trial"} />
+          </div>
+        </section>
 
-        <div className="flex items-center gap-0 border border-[#262626] overflow-x-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4 items-start">
+          <div className="space-y-4">
+            <SubscriptionBanner user={user} />
+            <PushOptIn vapidPublicKey={vapid} />
+          </div>
+          <div className="co-glass rounded-[8px] p-4 hidden lg:block">
+            <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482]">Session</div>
+            <div className="font-heading font-bold text-lg mt-1 truncate">{user?.email}</div>
+            <div className="mt-3 flex items-center gap-2 text-xs text-[#aeb8c2]">
+              <span className="w-2 h-2 rounded-full bg-[#00ff66]" />
+              Protected PWA session
+            </div>
+          </div>
+        </div>
+
+        <div className="co-native-tabs sticky top-[72px] z-20 backdrop-blur-xl">
           {[
-            { id: "today", label: "Today's Slip" },
-            { id: "history", label: "History" },
+            { id: "today", label: "Slip", Icon: Zap },
+            { id: "history", label: "History", Icon: History },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} data-testid={`dash-tab-${t.id}`}
-                    className={`font-mono uppercase tracking-widest text-[11px] px-5 py-3 border-r border-[#262626] transition-colors whitespace-nowrap ${
-                      tab === t.id ? "bg-[#f5f5f5] text-[#050505]" : "text-[#a3a3a3] hover:bg-[#1a1a1a] hover:text-[#f5f5f5]"
+                    className={`co-native-tab font-mono uppercase tracking-widest text-[11px] px-5 py-3 transition-colors whitespace-nowrap inline-flex items-center justify-center gap-2 ${
+                      tab === t.id ? "bg-[#00ff66] text-[#050607]" : "text-[#aeb8c2] hover:bg-white/5 hover:text-[#f5f5f5]"
                     }`}>
+              <t.Icon className="w-4 h-4" />
               {t.label}
             </button>
           ))}
@@ -130,13 +186,13 @@ export default function Dashboard() {
             <div className="flex items-center gap-3 flex-wrap mb-2">
               <h1 className="font-heading font-black text-2xl sm:text-3xl tracking-tight">{headingLabel}</h1>
               {isTomorrow && !awaitingTomorrow && (
-                <span data-testid="tomorrow-badge" className="px-2 py-1 bg-[#00ff66] text-[#050505] font-mono text-[10px] uppercase tracking-widest font-bold">
+                <span data-testid="tomorrow-badge" className="px-2 py-1 bg-[#00ff66] text-[#050607] font-mono text-[10px] uppercase tracking-widest font-bold rounded-full">
                   Next-day rollover
                 </span>
               )}
             </div>
-            <p className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mb-5 sm:mb-6">
-              // {subLabel}
+            <p className="font-mono text-[10px] uppercase tracking-widest text-[#667482] mb-5 sm:mb-6">
+              {subLabel}
             </p>
             {awaitingTomorrow ? (
               <div className="co-card p-6 sm:p-8 border-l-4 border-l-[#00ff66]" data-testid="awaiting-tomorrow-card">
@@ -162,7 +218,7 @@ export default function Dashboard() {
             )}
 
             {/* Live fixture schedule — never empty, even before odds arrive */}
-            <div className="mt-8">
+            <div className="mt-8" id="fixtures">
               <UpcomingFixtures />
             </div>
 

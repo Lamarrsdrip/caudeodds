@@ -87,7 +87,7 @@ export default function UpcomingFixtures() {
   if (loading) {
     return (
       <div className="co-card p-6" data-testid="upcoming-fixtures-loading">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">// loading fixture schedule…</div>
+        <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482]">Loading fixture schedule</div>
       </div>
     );
   }
@@ -103,24 +103,24 @@ export default function UpcomingFixtures() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="font-heading font-black text-xl sm:text-2xl tracking-tight">UPCOMING FIXTURES</h2>
-          <p className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mt-1">
-            // Live schedule · updates every 15 min · {totalAcrossDays} match{totalAcrossDays === 1 ? "" : "es"} across {data.schedule.length} day{data.schedule.length === 1 ? "" : "s"}
+          <p className="font-mono text-[10px] uppercase tracking-widest text-[#667482] mt-1">
+            Live schedule · updates every 15 min · {totalAcrossDays} match{totalAcrossDays === 1 ? "" : "es"} across {data.schedule.length} day{data.schedule.length === 1 ? "" : "s"}
           </p>
         </div>
-        <button onClick={fetchData} data-testid="refresh-fixtures-btn" className="border border-[#262626] hover:border-[#525252] hover:bg-[#1a1a1a] font-mono text-[10px] uppercase tracking-widest px-3 py-2">
+        <button onClick={fetchData} data-testid="refresh-fixtures-btn" className="co-secondary-action rounded-[6px] font-mono text-[10px] uppercase tracking-widest px-3 py-2 min-h-[40px]">
           Refresh
         </button>
       </div>
 
       {/* Date tabs */}
-      <div className="flex items-center gap-0 border border-[#262626] overflow-x-auto" data-testid="fixture-date-tabs">
+      <div className="co-native-tabs overflow-x-auto no-scrollbar" data-testid="fixture-date-tabs">
         {data.schedule.map((d, i) => {
           const dayLabel = i === 0 ? "Today" : i === 1 ? "Tomorrow" : new Date(d.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
           const isActive = d.date === activeDay.date;
           return (
             <button key={d.date} onClick={() => setActiveDate(d.date)} data-testid={`fixture-tab-${d.date}`}
-                    className={`font-mono uppercase tracking-widest text-[11px] px-4 py-3 border-r border-[#262626] last:border-r-0 whitespace-nowrap transition-colors ${
-                      isActive ? "bg-[#f5f5f5] text-[#050505]" : "text-[#a3a3a3] hover:bg-[#1a1a1a]"
+                    className={`co-native-tab font-mono uppercase tracking-widest text-[11px] px-4 py-3 whitespace-nowrap transition-colors ${
+                      isActive ? "bg-[#00ff66] text-[#050607]" : "text-[#aeb8c2] hover:bg-white/5"
                     }`}>
               {dayLabel} ({d.summary?.total || 0})
             </button>
@@ -160,46 +160,46 @@ export default function UpcomingFixtures() {
           if (items.length === 0) return null;
           return (
             <div key={group.key} data-testid={`fixture-group-${group.key}`}>
-              <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252] mb-2">
-                // {group.label} ({items.length})
+              <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482] mb-2">
+                {group.label} ({items.length})
               </div>
-              <div className="co-card divide-y divide-[#1a1a1a]">
+              <div className="space-y-2">
                 {items.map((fx) => {
                   const badge = BADGE_MAP[fx.badge] || BADGE_MAP.waiting;
                   const resultBadge = fx.result_status === "won"
-                    ? { Icon: CheckCircle2, label: "WIN ✅", cls: "bg-[#00ff66] text-[#050505]" }
+                    ? { Icon: CheckCircle2, label: "WIN", cls: "bg-[#00ff66] text-[#050607]" }
                     : fx.result_status === "lost"
-                    ? { Icon: XCircle, label: "LOSS ❌", cls: "bg-[#ff3333] text-white" }
+                    ? { Icon: XCircle, label: "LOSS", cls: "bg-[#ff3333] text-white" }
                     : fx.result_status === "void"
-                    ? { Icon: Ban, label: "VOID ⚪", cls: "bg-[#525252] text-white" }
+                    ? { Icon: Ban, label: "VOID", cls: "bg-[#667482] text-white" }
                     : null;
                   return (
-                    <div key={fx.id} className="p-4 flex items-center gap-3" data-testid={`fixture-row-${fx.id}`}>
-                      <span className={`px-2 py-1 font-mono text-[9px] uppercase tracking-widest font-bold inline-flex items-center gap-1.5 shrink-0 ${badge.cls}`}>
+                    <div key={fx.id} className="co-card p-4 flex items-center gap-3" data-testid={`fixture-row-${fx.id}`}>
+                      <span className={`px-2 py-1 rounded-full font-mono text-[9px] uppercase tracking-widest font-bold inline-flex items-center gap-1.5 shrink-0 ${badge.cls}`}>
                         <badge.Icon className={`w-3 h-3 ${badge.spin ? "animate-spin" : ""}`} />
                         {badge.label}
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="co-tag">{fx.sport.toUpperCase()}</span>
-                          <span className="font-mono text-[10px] uppercase tracking-widest text-[#a3a3a3] truncate">{fx.league}</span>
+                          <span className="font-mono text-[10px] uppercase tracking-widest text-[#aeb8c2] truncate">{fx.league}</span>
                           {resultBadge && (
-                            <span className={`px-2 py-0.5 font-mono text-[9px] uppercase tracking-widest font-bold inline-flex items-center gap-1 ${resultBadge.cls}`} data-testid={`fixture-result-${fx.id}`}>
+                            <span className={`px-2 py-0.5 rounded-full font-mono text-[9px] uppercase tracking-widest font-bold inline-flex items-center gap-1 ${resultBadge.cls}`} data-testid={`fixture-result-${fx.id}`}>
                               <resultBadge.Icon className="w-3 h-3" />
                               {resultBadge.label}
                             </span>
                           )}
                         </div>
                         <div className="font-heading font-bold text-sm sm:text-base mt-1 truncate">
-                          {fx.home} <span className="text-[#525252] font-mono mx-1">vs</span> {fx.away}
+                          {fx.home} <span className="text-[#667482] font-mono mx-1">vs</span> {fx.away}
                         </div>
                         {fx.no_prediction_reason && (
-                          <div className="text-[10px] font-mono uppercase tracking-widest text-[#525252] mt-0.5">
-                            // reason: {fx.no_prediction_reason.replace(/_/g, " ")}
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-[#667482] mt-0.5">
+                            Reason: {fx.no_prediction_reason.replace(/_/g, " ")}
                           </div>
                         )}
                       </div>
-                      <div className="font-mono text-[10px] uppercase tracking-widest text-[#525252] text-right shrink-0">
+                      <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482] text-right shrink-0">
                         {formatKickoff(fx.kickoff)}
                       </div>
                     </div>
@@ -210,14 +210,14 @@ export default function UpcomingFixtures() {
           );
         })}
         {activeDay.fixtures.length === 0 && (
-          <div className="co-card p-8 text-center font-mono text-[10px] uppercase tracking-widest text-[#525252]">
-            // No fixtures scheduled for {activeDay.date} yet
+          <div className="co-card p-8 text-center font-mono text-[10px] uppercase tracking-widest text-[#667482]">
+            No fixtures scheduled for {activeDay.date} yet
           </div>
         )}
       </div>
 
-      <p className="text-[10px] font-mono uppercase tracking-widest text-[#525252] leading-relaxed">
-        // Fixtures appear as soon as the league publishes the schedule (often days ahead). Odds and AI picks arrive progressively from bookmakers — when a fixture flips to READY, it becomes eligible for today's slip.
+      <p className="text-[10px] font-mono uppercase tracking-widest text-[#667482] leading-relaxed">
+        Fixtures appear as soon as the league publishes the schedule. Odds and AI picks arrive progressively from bookmakers; READY fixtures become eligible for today's slip.
       </p>
     </div>
   );

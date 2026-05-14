@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { LogOut, Activity, Menu, X } from "lucide-react";
+import { LogOut, Activity, Menu, X, Crown, Bell } from "lucide-react";
 
 export default function AppHeader({ children }) {
   const { user, logout } = useAuth();
@@ -18,16 +18,20 @@ export default function AppHeader({ children }) {
 
   return (
     <header
-      className="border-b border-[#262626] bg-[#050505] sticky top-0 z-30"
+      className="sticky top-0 z-30 border-b border-white/10 bg-[#050607]/82 backdrop-blur-xl"
       data-testid="app-header"
       style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
     >
-      <div className="px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
+      <div className="mx-auto max-w-[1300px] px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
         <Link to="/" onClick={close} className="flex items-center gap-2 sm:gap-3 min-w-0" data-testid="brand-link">
-          <img src="/logo-icon.png" alt="ClaudeOdds" className="w-8 h-8 sm:w-9 sm:h-9 object-contain shrink-0" />
-          <h1 className="font-heading font-black text-xl sm:text-2xl tracking-tight truncate">ClaudeOdds</h1>
-          <span className="font-mono text-[10px] text-[#525252] tracking-widest uppercase pl-2 border-l border-[#262626] hidden lg:inline">
-            AI&nbsp;BETTING&nbsp;COMPANION
+          <span className="grid place-items-center w-10 h-10 bg-white/5 border border-white/10 rounded-[8px] shrink-0">
+            <img src="/logo-icon.png" alt="ClaudeOdds" className="w-7 h-7 object-contain" />
+          </span>
+          <span className="min-w-0">
+            <h1 className="font-heading font-black text-lg sm:text-2xl tracking-tight truncate leading-none">ClaudeOdds</h1>
+            <span className="font-mono text-[9px] text-[#667482] tracking-widest uppercase hidden sm:block mt-1">
+              AI betting companion
+            </span>
           </span>
         </Link>
 
@@ -38,7 +42,7 @@ export default function AppHeader({ children }) {
               <Link to="/" data-testid="nav-home" className={linkCls("/", true)}>Home</Link>
               <Link to="/pricing" data-testid="nav-pricing" className={linkCls("/pricing", true)}>Pricing</Link>
               <Link to="/login" data-testid="nav-login" className="text-[#a3a3a3] hover:text-[#00ff66]">Login</Link>
-              <Link to="/register" data-testid="nav-register" className="bg-[#f5f5f5] text-[#050505] px-4 py-2 hover:bg-[#00ff66]">Get Started</Link>
+              <Link to="/register" data-testid="nav-register" className="co-primary-action px-4 py-2 rounded-[6px]">Get Started</Link>
             </>
           )}
           {user && (
@@ -48,7 +52,7 @@ export default function AppHeader({ children }) {
               {user.role === "admin" && (
                 <Link to="/admin" data-testid="nav-admin" className={linkCls("/admin")}>Admin</Link>
               )}
-              <span className="text-[#525252] flex items-center gap-2">
+              <span className="text-[#667482] flex items-center gap-2">
                 <Activity className="w-3 h-3" />
                 <span className="hidden xl:inline">{user.email}</span>
               </span>
@@ -63,7 +67,7 @@ export default function AppHeader({ children }) {
         <button
           onClick={() => setOpen(o => !o)}
           data-testid="mobile-menu-toggle"
-          className="md:hidden p-2 text-[#a3a3a3] hover:text-[#f5f5f5]"
+          className="md:hidden w-10 h-10 grid place-items-center text-[#aeb8c2] bg-white/5 border border-white/10 rounded-[8px]"
           aria-label="Menu"
         >
           {open ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -72,26 +76,27 @@ export default function AppHeader({ children }) {
 
       {/* Mobile menu drawer */}
       {open && (
-        <div data-testid="mobile-menu" className="md:hidden border-t border-[#262626] bg-[#0a0a0a]">
-          <div className="px-4 py-3 flex flex-col gap-1 font-mono text-[12px] uppercase tracking-widest">
+        <div data-testid="mobile-menu" className="md:hidden border-t border-white/10 bg-[#0b0f12]/96 backdrop-blur-xl">
+          <div className="px-4 py-4 flex flex-col gap-2 font-mono text-[12px] uppercase tracking-widest">
             {!user && (
               <>
-                <Link to="/" onClick={close} className="py-3 border-b border-[#1a1a1a] text-[#a3a3a3] hover:text-[#00ff66]">Home</Link>
-                <Link to="/pricing" onClick={close} className="py-3 border-b border-[#1a1a1a] text-[#a3a3a3] hover:text-[#00ff66]">Pricing</Link>
-                <Link to="/login" onClick={close} className="py-3 border-b border-[#1a1a1a] text-[#a3a3a3] hover:text-[#00ff66]">Login</Link>
-                <Link to="/register" onClick={close} className="py-3 mt-2 bg-[#00ff66] text-[#050505] text-center">Start Free Trial →</Link>
+                <Link to="/" onClick={close} className="p-4 co-secondary-action rounded-[8px] text-[#aeb8c2]">Home</Link>
+                <Link to="/pricing" onClick={close} className="p-4 co-secondary-action rounded-[8px] text-[#aeb8c2]">Pricing</Link>
+                <Link to="/login" onClick={close} className="p-4 co-secondary-action rounded-[8px] text-[#aeb8c2]">Login</Link>
+                <Link to="/register" onClick={close} className="p-4 mt-1 co-primary-action text-center rounded-[8px]">Start Free Trial</Link>
               </>
             )}
             {user && (
               <>
-                <span className="py-2 text-[10px] text-[#525252] flex items-center gap-2"><Activity className="w-3 h-3"/> {user.email}</span>
-                <Link to="/dashboard" onClick={close} className="py-3 border-t border-[#1a1a1a] text-[#a3a3a3] hover:text-[#00ff66]">Today's Slip</Link>
-                <Link to="/history" onClick={close} className="py-3 border-t border-[#1a1a1a] text-[#a3a3a3] hover:text-[#00ff66]">History</Link>
-                <Link to="/subscription" onClick={close} className="py-3 border-t border-[#1a1a1a] text-[#a3a3a3] hover:text-[#00ff66]">Subscription</Link>
+                <span className="p-4 co-soft-band rounded-[8px] text-[10px] text-[#aeb8c2] flex items-center gap-2 normal-case tracking-normal font-body">
+                  <Activity className="w-4 h-4 text-[#00ff66]"/> {user.email}
+                </span>
+                <Link to="/dashboard" onClick={close} className="p-4 co-secondary-action rounded-[8px] text-[#aeb8c2] flex items-center gap-3"><Bell className="w-4 h-4"/> Today's Slip</Link>
+                <Link to="/subscription" onClick={close} className="p-4 co-secondary-action rounded-[8px] text-[#aeb8c2] flex items-center gap-3"><Crown className="w-4 h-4"/> Subscription</Link>
                 {user.role === "admin" && (
-                  <Link to="/admin" onClick={close} className="py-3 border-t border-[#1a1a1a] text-[#a3a3a3] hover:text-[#00ff66]">Admin Panel</Link>
+                  <Link to="/admin" onClick={close} className="p-4 co-secondary-action rounded-[8px] text-[#aeb8c2]">Admin Panel</Link>
                 )}
-                <button onClick={onLogout} className="py-3 mt-2 border-t border-[#1a1a1a] text-left text-[#ff3333] flex items-center gap-2">
+                <button onClick={onLogout} className="p-4 mt-1 text-left text-[#ff6b6b] flex items-center gap-2 co-secondary-action rounded-[8px]">
                   <LogOut className="w-4 h-4" /> Logout
                 </button>
               </>

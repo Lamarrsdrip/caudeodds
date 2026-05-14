@@ -1,18 +1,22 @@
-/* Component-level overrides for ClaudeOdd */
+/* Component-level overrides for ClaudeOdds */
 .App { min-height: 100vh; background: var(--co-bg); }
 
 /* Mobile-only bottom padding so fixed BottomNav (~64px) doesn't cover content */
 @media (max-width: 767px) {
-    body { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+    body { padding-bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }
 }
 
 .co-divider { height: 1px; background: var(--co-border); width: 100%; }
 .co-card {
-    background: var(--co-surface);
-    border: 1px solid var(--co-border);
-    transition: border-color 120ms ease, background-color 120ms ease;
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.025), transparent 48%),
+        var(--co-surface);
+    border: 1px solid rgba(95, 114, 128, 0.24);
+    border-radius: 8px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
+    transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
 }
-.co-card:hover { border-color: var(--co-border-focus); background: var(--co-surface-hover); }
+.co-card:hover { border-color: rgba(95, 114, 128, 0.46); background-color: var(--co-surface-hover); }
 
 .co-tag {
     font-family: var(--font-mono);
@@ -22,6 +26,7 @@
     border: 1px solid var(--co-border);
     padding: 2px 6px;
     color: var(--co-text-2);
+    border-radius: 999px;
 }
 .co-tag-pos { color: var(--co-pos); border-color: var(--co-pos); }
 .co-tag-neg { color: var(--co-neg); border-color: var(--co-neg); }
@@ -42,5 +47,26 @@
 /* Friendlier hero gradient accent */
 .co-accent-line {
     height: 3px;
-    background: linear-gradient(90deg, #00ff66 0%, transparent 100%);
+    background: linear-gradient(90deg, #00ff66 0%, #48a7ff 50%, transparent 100%);
+}
+
+.co-phone-frame {
+    width: min(100%, 430px);
+    margin-inline: auto;
+}
+
+.co-stat-tile {
+    min-height: 92px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(95, 114, 128, 0.2);
+    border-radius: 8px;
+}
+
+.co-scroll-snap {
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+}
+
+.co-scroll-snap > * {
+    scroll-snap-align: start;
 }
