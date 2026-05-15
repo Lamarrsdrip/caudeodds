@@ -36,7 +36,6 @@ export default function PushOptIn({ vapidPublicKey, compact = false, onStatusCha
         // SW failed to register (HTTP-only context, blocked, or sandboxed iframe).
         // Surface to console so admins debugging push can spot the cause; UI just hides.
         console.warn("Service worker registration failed:", e?.message || e);
-      }
         onStatusChange?.(false);
       }
     })();
