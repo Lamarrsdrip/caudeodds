@@ -75,14 +75,17 @@ export default function SettingsView({ settings, onSave }) {
         </div>
 
         <div>
-          <label className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">Max Picks Per Day</label>
+          <label className="font-mono text-[10px] uppercase tracking-widest text-[#525252]">Max Approved Candidates</label>
           <input
-            type="number" min="1" max="10"
+            type="number" min="5" max="40"
             value={form.max_picks_per_day}
             onChange={e => update("max_picks_per_day", parseInt(e.target.value))}
             data-testid="settings-maxpicks"
             className="w-full bg-[#0a0a0a] border border-[#262626] focus:border-[#525252] outline-none font-mono px-3 py-2 mt-1"
           />
+          <p className="text-xs text-[#667482] mt-2 leading-relaxed">
+            This controls the optional confidence board. The official daily slip still stays capped at 5 odds.
+          </p>
         </div>
 
         <div>
@@ -116,6 +119,7 @@ export default function SettingsView({ settings, onSave }) {
           <li>— Quarter Kelly (0.25) is recommended for most bettors. Full Kelly maximizes growth but with high variance.</li>
           <li>— Lowering Min Confidence below 70% will produce more picks but worse expected value.</li>
           <li>— Min EV of 0.04 = require at least 4% expected value over fair odds. Increase for fewer, higher-quality picks.</li>
+          <li>— Main slip is no longer forced to five legs. Extra approved games appear under confidence categories.</li>
           <li>— The system caps any single bet at 5% of bankroll regardless of Kelly recommendation.</li>
         </ul>
       </div>

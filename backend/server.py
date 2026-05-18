@@ -1021,6 +1021,27 @@ async def slip_today(request: Request):
             "kickoff": leg.kickoff,                # kickoff time is fine — doesn't identify the bet
             "reasoning": "",
         } for leg in slip.legs]
+        teaser["optional_picks"] = [{
+            "name": cat.get("name", "Optional"),
+            "description": "Subscribe to unlock optional confidence-ranked games.",
+            "picks": [{
+                "match": "🔒 Locked",
+                "league": "🔒 Locked",
+                "sport": p.get("sport", ""),
+                "market": "🔒 Locked",
+                "selection_label": "🔒 Locked",
+                "odds": p.get("odds"),
+                "confidence": 0,
+                "edge_pct": 0,
+                "expected_value": 0,
+                "risk_level": p.get("risk_level", ""),
+                "data_richness": p.get("data_richness", 0),
+                "category": p.get("category", cat.get("name", "")),
+                "in_main_slip": p.get("in_main_slip", False),
+                "kickoff": p.get("kickoff", ""),
+                "reasoning": "",
+            } for p in cat.get("picks", [])[:5]],
+        } for cat in teaser.get("optional_picks", [])]
         teaser["combined_odds"] = slip.combined_odds  # show the actual combined price
         teaser["combined_confidence"] = 0
         teaser["expected_value"] = 0
@@ -1340,6 +1361,7 @@ async def slip_history(limit: int = 60, user: dict = Depends(get_current_user_de
                 [p.status for p in picks],
             )]
             d["sportybet_code"] = ""
+            d["optional_picks"] = []
             d["summary"] = (
                 f"{slip.leg_count}-leg slip · {d['status_summary']['won']}W "
                 f"{d['status_summary']['lost']}L · combined "

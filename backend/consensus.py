@@ -10,6 +10,11 @@ from staking import risk_level, stake_recommendation
 
 logger = logging.getLogger("claudeodd.consensus")
 
+MIN_PAID_CONFIDENCE = 68.0
+MIN_PAID_AGREEMENT = 62.0
+MIN_PAID_EV = 0.035
+MIN_PAID_DATA_RICHNESS = 0.45
+
 MARKET_LABELS = {
     "1X2_HOME": "Home Win",
     "1X2_DRAW": "Draw",
@@ -124,18 +129,21 @@ def evaluate(
                 )
 
     ensemble_conf = (quant.confidence + reasoning.tactical_confidence) / 2
-    if ensemble_conf < settings.min_confidence:
+    min_confidence = max(float(settings.min_confidence), MIN_PAID_CONFIDENCE)
+    min_agreement = max(float(settings.min_agreement), MIN_PAID_AGREEMENT)
+    min_ev = max(float(settings.min_ev), MIN_PAID_EV)
+    if ensemble_conf < min_confidence:
         return None, RejectionLog(
             date=date_str, match=match, sport=fx.sport,
             reason_code="LOW_CONFIDENCE",
-            reason=f"Ensemble confidence {ensemble_conf:.0f}% < {settings.min_confidence:.0f}%",
+            reason=f"Ensemble confidence {ensemble_conf:.0f}% < {min_confidence:.0f}% paid-pick floor",
         )
 
-    if quant.expected_value < settings.min_ev:
+    if quant.expected_value < min_ev:
         return None, RejectionLog(
             date=date_str, match=match, sport=fx.sport,
             reason_code="LOW_EV",
-            reason=f"EV {quant.expected_value:.3f} < {settings.min_ev:.3f}",
+            reason=f"EV {quant.expected_value:.3f} < {min_ev:.3f} paid-pick floor",
         )
 
     # ── HOME-ADVANTAGE BIAS GUARD ──────────────────────────────────────────
@@ -220,6 +228,14 @@ def evaluate(
     book_implied = round(1.0 / odds, 4)
     richness = float(getattr(fx, "data_richness", 0.0) or 0.0)
 
+    if richness < MIN_PAID_DATA_RICHNESS:
+        return None, RejectionLog(
+            date=date_str, match=match, sport=fx.sport,
+            reason_code="DATA_TOO_WEAK",
+            reason=(f"Data richness {richness:.2f} < {MIN_PAID_DATA_RICHNESS:.2f}. "
+                    "Rejecting instead of guessing from bookmaker price only."),
+        )
+
     if richness < 0.4:
         MAX_PROB_SHIFT = 0.02  # price-only — we have no real edge here
     elif richness < 0.7:
@@ -252,11 +268,11 @@ def evaluate(
     calibrated_edge_pct = round((calibrated_fair_prob - book_implied) / book_implied * 100.0, 2)
 
     # If after calibration the bet has no edge, reject it
-    if calibrated_ev < settings.min_ev:
+    if calibrated_ev < min_ev:
         return None, RejectionLog(
             date=date_str, match=match, sport=fx.sport,
             reason_code="LOW_EV_CALIBRATED",
-            reason=(f"After realism calibration, EV={calibrated_ev:.3f} < {settings.min_ev:.3f}. "
+            reason=(f"After realism calibration, EV={calibrated_ev:.3f} < {min_ev:.3f}. "
                     f"Original AI fair_prob {raw_fair_prob:.3f} clamped to {calibrated_fair_prob:.3f} "
                     f"(book implies {book_implied:.3f}; max shift {MAX_PROB_SHIFT:.2f})"),
         )
@@ -274,7 +290,7 @@ def evaluate(
             )
 
     if fx.sport == "football" and quant_side == "AWAY":
-        away_min_ev = max(settings.min_ev + 0.01, 0.035)
+        away_min_ev = max(min_ev + 0.01, 0.045)
         if calibrated_ev < away_min_ev or calibrated_edge_pct < 2.0:
             return None, RejectionLog(
                 date=date_str, match=match, sport=fx.sport,
@@ -295,11 +311,11 @@ def evaluate(
 
     conf_gap = abs(quant.confidence - reasoning.tactical_confidence)
     agreement = max(0.0, 100.0 - conf_gap)
-    if agreement < settings.min_agreement:
+    if agreement < min_agreement:
         return None, RejectionLog(
             date=date_str, match=match, sport=fx.sport,
             reason_code="LOW_AGREEMENT",
-            reason=f"Agreement {agreement:.0f}% < {settings.min_agreement:.0f}%",
+            reason=f"Agreement {agreement:.0f}% < {min_agreement:.0f}% paid-pick floor",
         )
 
     # Update quant view with calibrated values so the API + UI reflect reality

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 import uuid
@@ -177,3 +177,6 @@ class CombinedSlip(BaseModel):
     sportybet_url: str
     summary: str
     locked: bool = False  # true if user must subscribe to unlock
+    optional_picks: List[Dict[str, Any]] = Field(default_factory=list)
+    candidate_count: int = 0
+    quality_note: str = ""

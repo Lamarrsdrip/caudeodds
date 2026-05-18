@@ -33,6 +33,78 @@ function formatKickoff(iso) {
   }
 }
 
+function OptionalPickBoard({ categories = [], locked }) {
+  const visible = (categories || [])
+    .map(cat => ({ ...cat, picks: (cat.picks || []).filter(p => !p.in_main_slip).slice(0, 8) }))
+    .filter(cat => cat.picks.length > 0);
+  if (!visible.length) return null;
+
+  const tone = {
+    Elite: "text-[#00ff66] border-[#00ff66]/35",
+    Strong: "text-[#48a7ff] border-[#48a7ff]/35",
+    Value: "text-[#ffb800] border-[#ffb800]/35",
+    "Safer Singles": "text-[#a78bfa] border-[#a78bfa]/35",
+    Leans: "text-[#aeb8c2] border-white/10",
+  };
+
+  return (
+    <section className="co-card p-4 sm:p-5" data-testid="optional-picks-board">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-widest text-[#667482]">More approved games</div>
+          <div className="font-heading font-bold text-lg mt-1">Confidence categories</div>
+        </div>
+        <span className="co-tag co-tag-warn">Optional</span>
+      </div>
+      <div className="space-y-4">
+        {visible.map(cat => (
+          <div key={cat.name} className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className={`font-mono text-[11px] uppercase tracking-widest font-bold ${tone[cat.name]?.split(" ")[0] || "text-[#aeb8c2]"}`}>
+                  {cat.name}
+                </div>
+                <p className="text-xs text-[#667482] leading-relaxed">{cat.description}</p>
+              </div>
+              <span className="font-mono text-[10px] text-[#667482]">{cat.picks.length}</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {cat.picks.map(p => (
+                <div key={p.id || `${cat.name}-${p.match}-${p.market}`} className={`rounded-[8px] border bg-black/20 p-3 ${tone[cat.name] || "border-white/10"}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-heading font-bold text-sm leading-tight truncate">{p.match}</div>
+                      <div className="mt-1 text-xs text-[#aeb8c2] truncate">{locked ? "Subscribe to unlock" : p.selection_label}</div>
+                      <div className="mt-2 font-mono text-[9px] uppercase tracking-widest text-[#667482] truncate">
+                        {p.sport?.toUpperCase()} · {p.league}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="font-mono text-lg font-bold">{p.odds ? Number(p.odds).toFixed(2) : "—"}</div>
+                      {!locked && (
+                        <div className="font-mono text-[9px] uppercase tracking-widest text-[#667482]">
+                          {Number(p.confidence || 0).toFixed(0)}%
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {!locked && (
+                    <div className="mt-3 flex items-center gap-2 flex-wrap font-mono text-[9px] uppercase tracking-widest text-[#667482]">
+                      <span>EV {(Number(p.expected_value || 0) * 100).toFixed(1)}%</span>
+                      <span>EDGE {Number(p.edge_pct || 0).toFixed(1)}%</span>
+                      <span>{p.risk_level}</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function DailySlip({ slip, locked, onSubscribe }) {
   const [copied, setCopied] = useState(false);
   if (!slip) {
@@ -81,6 +153,11 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
               {slip.combined_odds != null ? slip.combined_odds.toFixed(2) : (slip.combined_odds_range || "Locked")}
             </div>
             <div className="mt-2 text-sm text-[#aeb8c2]">{slip.leg_count} legs selected by the AI ensemble</div>
+            {slip.candidate_count > slip.leg_count && (
+              <div className="mt-1 font-mono text-[9px] uppercase tracking-widest text-[#667482]">
+                {slip.candidate_count} approved games ranked below
+              </div>
+            )}
           </div>
           <div className={`co-tag rounded-[8px] px-3 py-2 font-mono text-[10px] uppercase tracking-widest font-bold ${riskTag}`}>
             {slip.risk_level || "Locked"}
@@ -257,12 +334,17 @@ export default function DailySlip({ slip, locked, onSubscribe }) {
         })}
       </div>
 
+      <OptionalPickBoard categories={slip.optional_picks || []} locked={locked} />
+
       {/* Summary */}
       <div className="co-card p-5">
         <div className="text-[10px] font-mono uppercase tracking-widest text-[#667482] mb-2 inline-flex items-center gap-2">
           <TrendingUp className="w-3.5 h-3.5 text-[#48a7ff]"/> AI Ensemble Summary
         </div>
         <p className="text-sm text-[#aeb8c2] leading-relaxed">{slip.summary}</p>
+        {slip.quality_note && (
+          <p className="text-xs text-[#667482] leading-relaxed mt-3">{slip.quality_note}</p>
+        )}
         <div className="mt-3 inline-block">
           <span className={`co-tag ${riskTag}`}>{slip.risk_level} RISK</span>
         </div>

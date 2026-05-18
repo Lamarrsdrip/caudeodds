@@ -53,7 +53,11 @@ async def run_pipeline(date_str: str, settings: Settings, db=None) -> Tuple[List
         elif rej is not None:
             rejections.append(rej)
 
-    top_picks = select_top(candidate_picks, settings.max_picks_per_day)
+    # Keep enough approved candidates for the optional board. The official slip
+    # is still capped inside slip_builder; this just prevents good extra games
+    # from being thrown away before users can see their confidence category.
+    candidate_cap = max(12, min(40, int(settings.max_picks_per_day or 24)))
+    top_picks = select_top(candidate_picks, candidate_cap)
     # Picks not chosen go to rejection log
     chosen_ids = {p.id for p in top_picks}
     for p in candidate_picks:

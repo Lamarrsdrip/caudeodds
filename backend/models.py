@@ -115,10 +115,10 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     bankroll: float = 1000.0
     kelly_fraction: float = 0.25
-    max_picks_per_day: int = 8  # generate more candidates so slip-builder can pack 3-5 highest-conf
-    min_confidence: float = 60.0
-    min_agreement: float = 55.0
-    min_ev: float = 0.02
+    max_picks_per_day: int = 24  # candidate board size; the official slip is capped separately at 5 legs
+    min_confidence: float = 68.0
+    min_agreement: float = 62.0
+    min_ev: float = 0.035
     sport_filter: Literal["all", "football", "basketball"] = "all"
     updated_at: str = Field(default_factory=utcnow_iso)
 
