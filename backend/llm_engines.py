@@ -31,7 +31,17 @@ from models import Fixture, QuantOutput, ReasoningOutput
 
 logger = logging.getLogger("claudeodd.llm")
 
-EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+_db_config = {"emergent_llm_key": ""}
+
+
+def set_runtime_config(emergent_llm_key: str = "") -> None:
+    """Called from server.py whenever admin config changes."""
+    if emergent_llm_key is not None:
+        _db_config["emergent_llm_key"] = (emergent_llm_key or "").strip()
+
+
+def _api_key() -> str:
+    return (_db_config.get("emergent_llm_key") or os.environ.get("EMERGENT_LLM_KEY", "")).strip()
 
 GPT_MODEL = ("openai", "gpt-4o-mini")
 CLAUDE_MODEL = ("anthropic", "claude-haiku-4-5-20251001")
@@ -237,11 +247,12 @@ def _fixture_payload(fx: Fixture) -> dict:
 
 
 async def _llm(model_provider: tuple, system: str, payload: str, session_prefix: str, fx_id: str) -> dict | None:
-    if not EMERGENT_KEY:
-        logger.error("EMERGENT_LLM_KEY missing")
+    api_key = _api_key()
+    if not api_key:
+        logger.error("EMERGENT_LLM_KEY missing from environment/admin runtime config")
         return None
     chat = LlmChat(
-        api_key=EMERGENT_KEY,
+        api_key=api_key,
         session_id=f"{session_prefix}-{fx_id}-{uuid.uuid4().hex[:6]}",
         system_message=system,
     ).with_model(*model_provider)

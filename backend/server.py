@@ -129,6 +129,7 @@ async def on_startup():
     from odds_api_service import set_runtime_config as set_odds_runtime
     from apifootball_service import set_runtime_config as set_af_runtime
     from apibasketball_service import set_runtime_config as set_ab_runtime
+    from llm_engines import set_runtime_config as set_llm_runtime
     set_odds_runtime(
         odds_api_key=cfg.get("odds_api_key", ""),
         odds_api_base_url=cfg.get("odds_api_base_url", ""),
@@ -140,6 +141,9 @@ async def on_startup():
     set_ab_runtime(
         apibasketball_key=cfg.get("apibasketball_key", ""),
         apibasketball_base_url=cfg.get("apibasketball_base_url", ""),
+    )
+    set_llm_runtime(
+        emergent_llm_key=cfg.get("emergent_llm_key", ""),
     )
     from scheduler import configure_scheduler
     sched_status = await configure_scheduler(db)
@@ -1551,6 +1555,8 @@ async def admin_get_config(_: dict = Depends(admin_required)):
         cfg.apifootball_key = "****" + cfg.apifootball_key[-4:]
     if cfg.apibasketball_key:
         cfg.apibasketball_key = "****" + cfg.apibasketball_key[-4:]
+    if cfg.emergent_llm_key:
+        cfg.emergent_llm_key = "****" + cfg.emergent_llm_key[-4:]
     return cfg
 
 
@@ -1560,7 +1566,7 @@ async def admin_set_config(cfg: AdminConfig, _: dict = Depends(admin_required)):
     # Don't persist masked placeholders — re-load existing values for any field still masked
     existing = await admin_cfg_col.find_one({"_id": "main"}, {"_id": 0}) or {}
     payload = cfg.model_dump()
-    for secret_field in ["flw_secret_key", "flw_encryption_key", "flw_webhook_secret", "smtp_password", "telegram_bot_token", "odds_api_key", "apifootball_key", "apibasketball_key"]:
+    for secret_field in ["flw_secret_key", "flw_encryption_key", "flw_webhook_secret", "smtp_password", "telegram_bot_token", "odds_api_key", "apifootball_key", "apibasketball_key", "emergent_llm_key"]:
         v = payload.get(secret_field, "")
         if v and (v.startswith("****") or v == "********"):
             payload[secret_field] = existing.get(secret_field, "")
@@ -1569,6 +1575,7 @@ async def admin_set_config(cfg: AdminConfig, _: dict = Depends(admin_required)):
     from odds_api_service import set_runtime_config as set_odds_runtime
     from apifootball_service import set_runtime_config as set_af_runtime
     from apibasketball_service import set_runtime_config as set_ab_runtime
+    from llm_engines import set_runtime_config as set_llm_runtime
     set_odds_runtime(
         odds_api_key=payload.get("odds_api_key", ""),
         odds_api_base_url=payload.get("odds_api_base_url", ""),
@@ -1580,6 +1587,9 @@ async def admin_set_config(cfg: AdminConfig, _: dict = Depends(admin_required)):
     set_ab_runtime(
         apibasketball_key=payload.get("apibasketball_key", ""),
         apibasketball_base_url=payload.get("apibasketball_base_url", ""),
+    )
+    set_llm_runtime(
+        emergent_llm_key=payload.get("emergent_llm_key", ""),
     )
     from scheduler import configure_scheduler
     await configure_scheduler(db)

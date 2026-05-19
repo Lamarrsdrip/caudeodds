@@ -14,6 +14,7 @@ MIN_PAID_CONFIDENCE = 68.0
 MIN_PAID_AGREEMENT = 62.0
 MIN_PAID_EV = 0.035
 MIN_PAID_DATA_RICHNESS = 0.45
+MIN_MARKET_ONLY_SCORE = 0.72
 
 MARKET_LABELS = {
     "1X2_HOME": "Home Win",
@@ -68,6 +69,38 @@ def _odds_for_market(fx: Fixture, market_code: str) -> float | None:
     except (KeyError, TypeError):
         return None
     return None
+
+
+def _sharp_for_side(fx: Fixture, side: str) -> float:
+    sharp_pct = fx.sharp_money_pct or {}
+    if side in ("HOME", "OVER", "BTTS_YES"):
+        return float(sharp_pct.get("home", sharp_pct.get("over", 50)) or 50)
+    if side in ("AWAY", "UNDER", "BTTS_NO"):
+        return float(sharp_pct.get("away", sharp_pct.get("under", 50)) or 50)
+    return 50.0
+
+
+def _market_intelligence_score(fx: Fixture, side: str) -> float:
+    """Bookmaker-only fallback quality.
+
+    This is not fake injury/form intel. It lets a price-only fixture pass only
+    when the market itself is clean: broad book coverage/liquidity, low
+    volatility, sharp money leaning the same direction, and no violent line
+    drift. Weak market-only fixtures are still rejected.
+    """
+    liquidity = max(0.0, min(1.0, float(getattr(fx, "liquidity_score", 0.0) or 0.0)))
+    volatility = max(0.0, min(1.0, float(getattr(fx, "volatility", 0.5) or 0.5)))
+    sharp = _sharp_for_side(fx, side)
+    sharp_component = max(0.0, min(1.0, (sharp - 50.0) / 25.0))
+    drift = abs(float(getattr(fx, "line_drift_pct", 0.0) or 0.0))
+    drift_safety = max(0.0, 1.0 - min(drift, 12.0) / 12.0)
+    return round(
+        liquidity * 0.42
+        + (1.0 - volatility) * 0.30
+        + sharp_component * 0.18
+        + drift_safety * 0.10,
+        4,
+    )
 
 
 def evaluate(
@@ -227,32 +260,37 @@ def evaluate(
     # ============================================================
     book_implied = round(1.0 / odds, 4)
     richness = float(getattr(fx, "data_richness", 0.0) or 0.0)
+    market_score = _market_intelligence_score(fx, quant_side)
+    market_only_allowed = (
+        richness < MIN_PAID_DATA_RICHNESS
+        and market_score >= MIN_MARKET_ONLY_SCORE
+        and quant.confidence >= min_confidence + 4
+        and reasoning.tactical_confidence >= min_confidence + 2
+        and reasoning.narrative_risk <= 55
+    )
+    effective_richness = richness
+    if market_only_allowed:
+        effective_richness = MIN_PAID_DATA_RICHNESS
 
-    if richness < MIN_PAID_DATA_RICHNESS:
+    if effective_richness < MIN_PAID_DATA_RICHNESS:
         return None, RejectionLog(
             date=date_str, match=match, sport=fx.sport,
             reason_code="DATA_TOO_WEAK",
-            reason=(f"Data richness {richness:.2f} < {MIN_PAID_DATA_RICHNESS:.2f}. "
-                    "Rejecting instead of guessing from bookmaker price only."),
+            reason=(f"Data richness {richness:.2f} and market-intel score {market_score:.2f} "
+                    f"< {MIN_MARKET_ONLY_SCORE:.2f}. Rejecting instead of guessing from weak data."),
         )
 
-    if richness < 0.4:
+    if effective_richness < 0.4:
         MAX_PROB_SHIFT = 0.02  # price-only — we have no real edge here
-    elif richness < 0.7:
+    elif effective_richness < 0.7:
         MAX_PROB_SHIFT = 0.04
     else:
         MAX_PROB_SHIFT = 0.06
 
     # Strong sharp-book divergence widens the budget by 1pp (only if we already
     # have intel — never on price-only matches)
-    sharp_pct = fx.sharp_money_pct or {}
-    side = quant_side
-    sharp_for_side = 50
-    if side in ("HOME", "OVER", "BTTS_YES"):
-        sharp_for_side = sharp_pct.get("home", sharp_pct.get("over", 50))
-    elif side in ("AWAY", "UNDER", "BTTS_NO"):
-        sharp_for_side = sharp_pct.get("away", sharp_pct.get("under", 50))
-    if richness >= 0.4 and sharp_for_side > 60 and (fx.volatility or 0.5) < 0.30:
+    sharp_for_side = _sharp_for_side(fx, quant_side)
+    if effective_richness >= 0.4 and sharp_for_side > 60 and (fx.volatility or 0.5) < 0.30:
         MAX_PROB_SHIFT += 0.01
 
     raw_fair_prob = float(quant.fair_prob)
@@ -277,16 +315,17 @@ def evaluate(
                     f"(book implies {book_implied:.3f}; max shift {MAX_PROB_SHIFT:.2f})"),
         )
 
-    if richness < 0.4:
+    if richness < MIN_PAID_DATA_RICHNESS:
         stable_market = fx.liquidity_score >= 0.75 and (fx.volatility or 0.5) <= 0.25
         strong_market_signal = sharp_for_side >= 60 and calibrated_edge_pct >= 2.0
-        if not (stable_market and strong_market_signal):
+        if not (market_only_allowed and stable_market and strong_market_signal):
             return None, RejectionLog(
                 date=date_str, match=match, sport=fx.sport,
                 reason_code="PRICE_ONLY_WEAK_EDGE",
                 reason=(f"Data richness {richness:.2f} is price-only. Refusing to publish without "
                         f"stable liquidity/volatility and sharp support (liquidity {fx.liquidity_score:.2f}, "
-                        f"volatility {(fx.volatility or 0):.2f}, sharp {sharp_for_side}%, edge {calibrated_edge_pct:.2f}%)."),
+                        f"volatility {(fx.volatility or 0):.2f}, sharp {sharp_for_side}%, edge {calibrated_edge_pct:.2f}%, "
+                        f"market-intel {market_score:.2f})."),
             )
 
     if fx.sport == "football" and quant_side == "AWAY":
@@ -357,6 +396,11 @@ def evaluate(
         reasoning_view=reasoning,
         data_richness=richness,
     )
+    if market_only_allowed:
+        pick.reasoning = (
+            f"{pick.reasoning} | Market-intel mode: enrichment missing/weak, "
+            f"but liquidity/volatility/sharp score {market_score:.2f} passed strict price-action gate."
+        )
     return pick, None
 
 

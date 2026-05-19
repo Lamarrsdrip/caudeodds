@@ -128,6 +128,9 @@ class AdminConfig(BaseModel):
     # API-Basketball enrichment (real form / H2H — sister product, separate sub)
     apibasketball_key: str = ""
     apibasketball_base_url: str = "https://v1.basketball.api-sports.io"
+    # LLM gateway used by the prediction ensemble. Admin-overridable so a
+    # redeploy does not silently drop prediction generation when env vars move.
+    emergent_llm_key: str = ""
     # Daily cron
     cron_enabled: bool = True
     cron_hour_utc: int = Field(default=8, ge=0, le=23)  # 08:00 UTC = 09:00 Lagos

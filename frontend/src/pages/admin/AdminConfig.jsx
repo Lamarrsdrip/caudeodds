@@ -23,6 +23,9 @@ const SECTIONS = [
     ["apibasketball_base_url", "API Base URL"],
     ["apibasketball_key", "API Key", "password"],
   ], hint: "SEPARATE subscription from API-Football. Same vendor, $19/mo Pro. Get key at api-basketball.com. Without it, basketball stays on price-only data (orange Market-Data badge)."},
+  { key: "llm", title: "AI Model Gateway", fields: [
+    ["emergent_llm_key", "Emergent LLM Key", "password"],
+  ], hint: "Required for prediction generation. Leave blank only if EMERGENT_LLM_KEY is configured in the backend environment."},
   { key: "cron", title: "Daily Auto-Generate (Cron)", fields: [
     ["cron_enabled", "Enabled", "bool"],
     ["cron_hour_utc", "Hour (UTC, 0-23)", "number"],
