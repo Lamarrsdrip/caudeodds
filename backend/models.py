@@ -84,6 +84,7 @@ class Pick(BaseModel):
     market: str
     selection_label: str
     odds: float
+    market_line: Optional[float] = None
     confidence: float
     agreement: float
     expected_value: float

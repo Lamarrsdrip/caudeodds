@@ -101,3 +101,78 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Finish the interrupted ClaudeOdds prediction fix: improve market variety, away-bias handling, Draw No Bet/double-chance behavior, basketball support, and over/under selection flow."
+backend:
+  - task: "Market normalization and accumulator-safe pick selection"
+    implemented: true
+    working: "NA"
+    file: "backend/consensus.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added deterministic market normalization so football straight win/DNB reads map to true Double Chance where available, basketball football-style markets map to ML/TOTAL, and normalized probabilities are re-anchored to the selected market."
+  - task: "Slip sport/market variety scoring"
+    implemented: true
+    working: "NA"
+    file: "backend/slip_builder.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added market-family, sport-mix, and basketball bonuses plus away-heavy slip penalty to reduce repeated market/side behavior in the official slip."
+  - task: "Football and basketball totals line tracking"
+    implemented: true
+    working: "NA"
+    file: "backend/consensus.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added market_line to picks/slip legs so football over/under and basketball totals can display and settle against the actual line rather than a hidden hardcoded value."
+  - task: "Basketball auto-settlement"
+    implemented: true
+    working: "NA"
+    file: "backend/settlement_service.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Extended settlement to API-Basketball for ML and totals, including fuzzy game lookup and push/void handling on exact totals lines."
+  - task: "LLM market-selection prompt update"
+    implemented: true
+    working: "NA"
+    file: "backend/llm_engines.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Split football and basketball market rules in the quant prompt, reinforced basketball preference, and clarified that DNB is not win-or-draw."
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+test_plan:
+  current_focus:
+    - "Market normalization and accumulator-safe pick selection"
+    - "Slip sport/market variety scoring"
+    - "Football and basketball totals line tracking"
+    - "Basketball auto-settlement"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+agent_communication:
+  - agent: "main"
+    message: "Syntax checks passed with py_compile. Local pytest collection skipped because this Mac Python lacks pydantic/emergentintegrations; rerun backend tests in the provisioned Emergent/app environment. Audit also fixed basketball settlement and actual totals-line tracking."

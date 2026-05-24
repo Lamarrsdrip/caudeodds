@@ -346,7 +346,13 @@ async def find_fixture_by_teams(db, league_name: str, home: str, away: str, date
     return None
 
 
-def settle_pick_result(market: str, fixture_result: Dict, home: str, away: str) -> Optional[str]:
+def settle_pick_result(
+    market: str,
+    fixture_result: Dict,
+    home: str,
+    away: str,
+    market_line: Optional[float] = None,
+) -> Optional[str]:
     """Given a finished fixture and the market we bet on, return 'won' / 'lost' / 'void'.
 
     Returns None if the fixture isn't finished yet.
@@ -384,9 +390,16 @@ def settle_pick_result(market: str, fixture_result: Dict, home: str, away: str) 
     if m == "DNB_AWAY":
         if home_g == away_g: return "void"
         return "won" if away_g > home_g else "lost"
-    # Over/Under 2.5
-    if m == "OU_2_5_OVER": return "won" if total > 2.5 else "lost"
-    if m == "OU_2_5_UNDER": return "won" if total < 2.5 else "lost"
+    # Over/Under. Historically this app used OU_2_5_* names, but the provider
+    # can return the closest real totals line. Use stored market_line when
+    # available so settlement matches the price users saw.
+    if m in ("OU_2_5_OVER", "OU_2_5_UNDER"):
+        line = float(market_line) if market_line is not None else 2.5
+        if total == line:
+            return "void"
+        if m.endswith("OVER"):
+            return "won" if total > line else "lost"
+        return "won" if total < line else "lost"
     # BTTS
     if m == "BTTS_YES": return "won" if (home_g > 0 and away_g > 0) else "lost"
     if m == "BTTS_NO": return "won" if (home_g == 0 or away_g == 0) else "lost"

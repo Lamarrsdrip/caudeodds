@@ -244,6 +244,79 @@ async def get_head_to_head(db, home_team_id: int, away_team_id: int, last_n: int
     return out
 
 
+async def find_fixture_by_teams(db, league_name: str, home: str, away: str, date_str: str) -> Optional[Dict]:
+    """Find a finished/scheduled basketball game by fuzzy home/away names."""
+    games = await fetch_fixtures_for_league_date(db, league_name, date_str)
+    if not games:
+        return None
+    home_target = home.lower().strip()
+    away_target = away.lower().strip()
+    best, best_score = None, 0
+    for g in games:
+        teams = g.get("teams") or {}
+        home_name = ((teams.get("home") or {}).get("name") or "").lower()
+        away_name = ((teams.get("away") or {}).get("name") or "").lower()
+        score = (
+            max(fuzz.token_set_ratio(home_target, home_name), fuzz.partial_ratio(home_target, home_name))
+            + max(fuzz.token_set_ratio(away_target, away_name), fuzz.partial_ratio(away_target, away_name))
+        ) / 2
+        if score > best_score:
+            best_score = score
+            best = g
+    return best if best and best_score >= 72 else None
+
+
+def _game_finished(game: Dict) -> bool:
+    status = (game.get("status") or {})
+    short = (status.get("short") or "").upper()
+    long = (status.get("long") or "").lower()
+    return short in ("FT", "AOT", "AP") or "finished" in long or "after" in long
+
+
+def settle_pick_result(market: str, game_result: Dict, market_line: Optional[float] = None) -> Optional[str]:
+    """Grade basketball moneyline/totals from API-Basketball final scores."""
+    if not _game_finished(game_result):
+        return None
+    scores = game_result.get("scores") or {}
+    home_total = (scores.get("home") or {}).get("total")
+    away_total = (scores.get("away") or {}).get("total")
+    if home_total is None or away_total is None:
+        return None
+    home_total = int(home_total)
+    away_total = int(away_total)
+    total = home_total + away_total
+    m = (market or "").upper()
+    if m == "ML_HOME":
+        return "won" if home_total > away_total else "lost"
+    if m == "ML_AWAY":
+        return "won" if away_total > home_total else "lost"
+    if m == "TOTAL_OVER":
+        if market_line is None:
+            return None
+        if total == float(market_line):
+            return "void"
+        return "won" if total > float(market_line) else "lost"
+    if m == "TOTAL_UNDER":
+        if market_line is None:
+            return None
+        if total == float(market_line):
+            return "void"
+        return "won" if total < float(market_line) else "lost"
+    if m == "TEAM_TOTAL_HOME_OVER":
+        if market_line is None:
+            return None
+        if home_total == float(market_line):
+            return "void"
+        return "won" if home_total > float(market_line) else "lost"
+    if m == "TEAM_TOTAL_HOME_UNDER":
+        if market_line is None:
+            return None
+        if home_total == float(market_line):
+            return "void"
+        return "won" if home_total < float(market_line) else "lost"
+    return None
+
+
 async def preflight_check() -> Dict:
     """Mirror of API-Football preflight: validates key + current-season access."""
     out = {

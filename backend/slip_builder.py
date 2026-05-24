@@ -52,6 +52,40 @@ def _pick_quality(p) -> float:
     )
 
 
+def _market_family(market: str) -> str:
+    m = (market or "").upper()
+    if m.startswith("DC_"): return "DC"
+    if m.startswith("DNB_"): return "DNB"
+    if m.startswith("OU_") or m.startswith("TOTAL_") or "TOTAL" in m: return "TOTAL"
+    if m.startswith("BTTS_"): return "BTTS"
+    if m.startswith("ML_"): return "ML"
+    if m.startswith("SPREAD_"): return "SPREAD"
+    if m.startswith("1X2_"): return "1X2"
+    return m
+
+
+def _basketball_bonus(p) -> float:
+    if getattr(p, "sport", "") != "basketball":
+        return 0.0
+    market = (getattr(p, "market", "") or "").upper()
+    if market in ("TOTAL_OVER", "TOTAL_UNDER"):
+        return 4.5
+    if market in ("ML_HOME", "ML_AWAY"):
+        return 3.0
+    return 1.5
+
+
+def _football_total_bonus(p) -> float:
+    if getattr(p, "sport", "") != "football":
+        return 0.0
+    market = (getattr(p, "market", "") or "").upper()
+    if market in ("OU_2_5_OVER", "OU_2_5_UNDER"):
+        return 3.5
+    if market in ("BTTS_YES", "BTTS_NO"):
+        return 2.5
+    return 0.0
+
+
 def _select_picks(picks: List) -> List:
     """Pick the official slip without forcing five legs.
 
@@ -72,9 +106,21 @@ def _select_picks(picks: List) -> List:
         combined_fp = 1.0
         away_count = home_count = 0
         richness_sum = 0.0
+        sport_set = set()
+        market_families = {}
+        basketball_count = 0
+        basketball_score = 0.0
+        football_total_score = 0.0
         for p in combo:
             combined_odds *= float(p.odds)
             richness_sum += float(getattr(p, "data_richness", 0.0) or 0.0)
+            sport_set.add(getattr(p, "sport", ""))
+            if getattr(p, "sport", "") == "basketball":
+                basketball_count += 1
+                basketball_score += _basketball_bonus(p)
+            football_total_score += _football_total_bonus(p)
+            fam = _market_family(getattr(p, "market", ""))
+            market_families[fam] = market_families.get(fam, 0) + 1
             try:
                 combined_fp *= float(p.quant_view.fair_prob)
             except Exception:
@@ -86,8 +132,13 @@ def _select_picks(picks: List) -> List:
                 home_count += 1
         if combined_odds < TARGET_MIN_ODDS or combined_odds > TARGET_MAX_ODDS:
             return -1
-        if len(combo) >= 3 and (away_count == len(combo) or home_count == len(combo)):
+        if len(combo) >= 3 and away_count >= len(combo) - 1:
             return -0.5
+        if len(combo) >= 3 and basketball_count == 0:
+            basketball_score -= 4.0
+        same_family_penalty = sum(max(0, count - 2) for count in market_families.values()) * 7.0
+        sport_mix_bonus = 5.0 if len(sport_set) > 1 else 0.0
+        market_mix_bonus = min(8.0, max(0, len(market_families) - 1) * 3.0)
         ev = combined_fp * combined_odds - 1.0
         min_conf = min(p.confidence for p in combo)
         avg_conf = sum(p.confidence for p in combo) / len(combo)
@@ -101,6 +152,11 @@ def _select_picks(picks: List) -> List:
             + ev * 100.0 * 0.12
             + avg_richness * 12.0
             + leg_bonus
+            + sport_mix_bonus
+            + market_mix_bonus
+            + basketball_score
+            + football_total_score
+            - same_family_penalty
         )
 
     best_combo = None
@@ -147,6 +203,7 @@ def _optional_pick_dict(p, official_ids: set[str]) -> dict:
         "market": p.market,
         "selection_label": p.selection_label,
         "odds": p.odds,
+        "market_line": getattr(p, "market_line", None),
         "confidence": p.confidence,
         "edge_pct": p.edge_pct,
         "expected_value": p.expected_value,
@@ -236,7 +293,8 @@ def build_slip(date_str: str, all_picks: List, sportybet_url: str = "https://www
         legs.append(SlipLeg(
             match=p.match, league=p.league, country=country, country_code=country_code,
             sport=p.sport, market=p.market, selection_label=p.selection_label,
-            odds=p.odds, confidence=p.confidence, edge_pct=p.edge_pct,
+            odds=p.odds, market_line=getattr(p, "market_line", None),
+            confidence=p.confidence, edge_pct=p.edge_pct,
             expected_value=leg_ev, book_implied_prob=book_imp,
             data_richness=getattr(p, "data_richness", 0.0) or 0.0,
             kickoff=p.kickoff, reasoning=(p.reasoning or "")[:240],

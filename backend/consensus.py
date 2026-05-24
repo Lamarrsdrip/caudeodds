@@ -20,8 +20,8 @@ MARKET_LABELS = {
     "1X2_HOME": "Home Win",
     "1X2_DRAW": "Draw",
     "1X2_AWAY": "Away Win",
-    "DC_1X": "Double Chance 1X",
-    "DC_X2": "Double Chance X2",
+    "DC_1X": "Home Win or Draw",
+    "DC_X2": "Away Win or Draw",
     "DC_12": "Double Chance 12",
     "DNB_HOME": "Draw No Bet — Home",
     "DNB_AWAY": "Draw No Bet — Away",
@@ -69,6 +69,89 @@ def _odds_for_market(fx: Fixture, market_code: str) -> float | None:
     except (KeyError, TypeError):
         return None
     return None
+
+
+def _line_for_market(fx: Fixture, market_code: str) -> float | None:
+    o = fx.odds or {}
+    m = (market_code or "").upper()
+    try:
+        if m in ("OU_2_5_OVER", "OU_2_5_UNDER"):
+            return float((o.get("OU_2_5") or {}).get("line", 2.5))
+        if m in ("TOTAL_OVER", "TOTAL_UNDER"):
+            line = (o.get("TOTAL") or {}).get("line")
+            return float(line) if line is not None else None
+        if m in ("TEAM_TOTAL_HOME_OVER", "TEAM_TOTAL_HOME_UNDER"):
+            line = (o.get("TEAM_TOTAL_HOME") or {}).get("line")
+            return float(line) if line is not None else None
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def _candidate(fx: Fixture, market_code: str) -> tuple[str, float] | None:
+    odds = _odds_for_market(fx, market_code)
+    if odds is None or odds < 1.15:
+        return None
+    return market_code, float(odds)
+
+
+def _choose_accumulator_market(fx: Fixture, market_code: str, fair_prob: float, data_richness: float) -> str:
+    """Map model direction to the safest available market for this sport.
+
+    The LLM can still decide direction, but real-money slips should not default
+    to volatile straight-away wins or unsupported football markets on basketball
+    fixtures. This keeps choices inside the app's accumulator strategy.
+    """
+    m = (market_code or "").upper()
+    side = market_to_side(m)
+    if side in ("OVER", "UNDER"):
+        if fx.sport == "basketball":
+            mapped = "TOTAL_OVER" if side == "OVER" else "TOTAL_UNDER"
+        else:
+            mapped = "OU_2_5_OVER" if side == "OVER" else "OU_2_5_UNDER"
+        return mapped if _candidate(fx, mapped) else m
+
+    if fx.sport == "basketball":
+        if side == "HOME":
+            for cand in ("ML_HOME",):
+                if _candidate(fx, cand):
+                    return cand
+        if side == "AWAY":
+            for cand in ("ML_AWAY",):
+                if _candidate(fx, cand):
+                    return cand
+        return m
+
+    if fx.sport != "football" or side not in ("HOME", "AWAY"):
+        return m
+
+    # Football accumulator preference: true win-or-draw cover first. DNB is a
+    # refund-on-draw market, not "win or draw", so do not use it as the safe
+    # public recommendation unless double chance is unavailable.
+    if side == "HOME":
+        ordered = (
+            ("DC_1X", 1.15, 1.55),
+            ("1X2_HOME", 1.20, 1.90),
+        ) if fair_prob >= 0.72 else (
+            ("DC_1X", 1.15, 1.55),
+            ("1X2_HOME", 1.20, 2.05),
+        )
+    else:
+        ordered = (
+            ("DC_X2", 1.15, 1.65),
+        )
+        if data_richness >= 0.75:
+            ordered = ordered + (("1X2_AWAY", 1.60, 2.60),)
+
+    fallback = None
+    for cand, lo, hi in ordered:
+        item = _candidate(fx, cand)
+        if not item:
+            continue
+        fallback = fallback or cand
+        if lo <= item[1] <= hi:
+            return cand
+    return fallback or m
 
 
 def _sharp_for_side(fx: Fixture, side: str) -> float:
@@ -178,6 +261,35 @@ def evaluate(
             reason_code="LOW_EV",
             reason=f"EV {quant.expected_value:.3f} < {min_ev:.3f} paid-pick floor",
         )
+
+    normalized_market = _choose_accumulator_market(
+        fx,
+        quant.market,
+        float(quant.fair_prob),
+        float(getattr(fx, "data_richness", 0.0) or 0.0),
+    )
+    if normalized_market != quant.market:
+        normalized_side = market_to_side(normalized_market)
+        if normalized_side != quant_side:
+            return None, RejectionLog(
+                date=date_str, match=match, sport=fx.sport,
+                reason_code="MARKET_UNSUPPORTED",
+                reason=f"Could not translate {quant.market} into a supported {fx.sport} market without changing side.",
+            )
+        logger.info("Normalized %s market %s → %s for %s", fx.sport, quant.market, normalized_market, match)
+        quant.market = normalized_market
+        quant.selection_label = MARKET_LABELS.get(normalized_market.upper(), quant.selection_label)
+        normalized_odds = _odds_for_market(fx, normalized_market)
+        if normalized_odds:
+            normalized_book_implied = round(1.0 / float(normalized_odds), 4)
+            # Re-anchor the model probability to the covered market. A home-win
+            # probability is not directly comparable to DC/DNB probability.
+            target_edge = max(float(quant.edge_pct or 0.0), min_ev * 100.0)
+            target_edge = min(target_edge, 6.0)
+            quant.book_implied_prob = normalized_book_implied
+            quant.fair_prob = round(min(0.97, normalized_book_implied * (1.0 + target_edge / 100.0)), 4)
+            quant.expected_value = round(quant.fair_prob * float(normalized_odds) - 1.0, 4)
+            quant.edge_pct = round((quant.fair_prob - normalized_book_implied) / normalized_book_implied * 100.0, 2)
 
     # ── HOME-ADVANTAGE BIAS GUARD ──────────────────────────────────────────
     # Bettors and our LLMs have a historical pattern of over-rating away teams
@@ -373,7 +485,15 @@ def evaluate(
     )
 
     risk = risk_level(calibrated_confidence, calibrated_edge_pct, fx.volatility)
-    label = quant.selection_label or MARKET_LABELS.get(quant.market.upper(), quant.market)
+    line = _line_for_market(fx, quant.market)
+    label = MARKET_LABELS.get(quant.market.upper(), quant.selection_label or quant.market)
+    if line is not None:
+        if quant.market.upper() in ("OU_2_5_OVER", "OU_2_5_UNDER"):
+            label = f"{'Over' if quant.market.upper().endswith('OVER') else 'Under'} {line:g} Goals"
+        elif quant.market.upper() in ("TOTAL_OVER", "TOTAL_UNDER"):
+            label = f"Basketball Total {'Over' if quant.market.upper().endswith('OVER') else 'Under'} {line:g}"
+        elif quant.market.upper() in ("TEAM_TOTAL_HOME_OVER", "TEAM_TOTAL_HOME_UNDER"):
+            label = f"Home Team Total {'Over' if quant.market.upper().endswith('OVER') else 'Under'} {line:g}"
 
     pick = Pick(
         date=date_str,
@@ -384,6 +504,7 @@ def evaluate(
         market=quant.market,
         selection_label=label,
         odds=odds,
+        market_line=line,
         confidence=calibrated_confidence,
         agreement=round(agreement, 1),
         expected_value=calibrated_ev,

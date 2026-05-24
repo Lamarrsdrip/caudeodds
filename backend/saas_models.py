@@ -158,6 +158,7 @@ class SlipLeg(BaseModel):
     market: str
     selection_label: str
     odds: float
+    market_line: Optional[float] = None
     confidence: float
     edge_pct: float
     expected_value: float = 0.0  # calibrated, per-leg

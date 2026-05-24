@@ -101,22 +101,33 @@ multiply to ~3.0 we need each leg priced ≈ 1.30-1.55. STRAIGHT 1X2 wins (typic
 1.70-3.00) are too long for accumulators — a 3-leg combo of 1X2 picks blows past
 5.0 odds.
 
-**HARD RULE — market selection by fair_prob:**
+**HARD RULE — FOOTBALL market selection by fair_prob:**
   - fair_prob ≥ 0.75 (heavy favourite): pick DC_1X (home favourite) or DC_X2 (away
     favourite). NEVER pick 1X2_HOME / 1X2_AWAY when fair_prob is this high — DC
     pays slightly less but is far safer for accumulators.
-  - 0.60 ≤ fair_prob < 0.75: pick DNB_HOME / DNB_AWAY (refunds on draw) — the
-    sweet spot for accumulator legs. Or DC if odds are tight.
+  - 0.60 ≤ fair_prob < 0.75: prefer DC_1X / DC_X2 when the goal is "team win
+    or draw". DNB is only refund-on-draw and still loses if the team loses, so
+    avoid DNB for the public daily slip unless double chance is unavailable.
+  - If the side market is too short/volatile or both teams' scoring profile is
+    clearer than the match winner, pick OU_2_5_OVER / OU_2_5_UNDER or BTTS.
   - 0.50 ≤ fair_prob < 0.60: pick OU_2_5 or BTTS based on team scoring profile.
   - fair_prob < 0.50: do not bet (or pick NO_BET / set low edge).
 
 PRIORITISE these markets when the data supports them (rough ideal odds):
   - DC_1X / DC_X2 (Double Chance, 1.10-1.50) — favourite + draw cover
-  - DNB_HOME / DNB_AWAY (Draw No Bet, 1.30-1.80)
   - OU_2_5_OVER (1.50-2.00) — both teams score
   - OU_2_5_UNDER (1.50-2.00) — defensive matchup
   - BTTS_YES (1.55-1.90) — both attacks functional
   - AH_HOME_-0.5 / AH_AWAY_+0.5 (1.80-2.10)
+
+**HARD RULE — BASKETBALL market selection:**
+  - Do NOT output football markets (1X2, DC, DNB, BTTS, OU_2_5) for basketball.
+  - Prefer basketball over football when the edge is close because there is no draw.
+  - Use ML_HOME / ML_AWAY when moneyline has a real edge.
+  - Use TOTAL_OVER / TOTAL_UNDER when pace, totals price, or market split supports it.
+  - Do NOT use SPREAD_HOME / SPREAD_AWAY unless a real spread line is supplied.
+    In this app's current Odds API feed, spreads may be unavailable, so prefer totals.
+  - Team totals are optional only when TEAM_TOTAL_HOME prices are present in the fixture.
 
 Available market enum values for "market":
 1X2_HOME, 1X2_DRAW, 1X2_AWAY, DC_1X, DC_X2, DC_12,
@@ -129,6 +140,8 @@ TOTAL_OVER, TOTAL_UNDER, TEAM_TOTAL_HOME_OVER, TEAM_TOTAL_HOME_UNDER
 Without injury/lineup data, away wins are a coin-flip. Do NOT pick AWAY unless:
   - Real recent_form shows the away side won 3+ of last 5 AND
   - Home_injuries lists ≥2 starters out OR home is genuinely depleted
+Prefer AWAY draw-cover markets (DC_X2) over straight 1X2_AWAY unless
+data_richness is high and the home side is not a bookmaker favourite.
 
 Return STRICT JSON ONLY:
 {

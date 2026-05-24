@@ -1,8 +1,8 @@
 """Post-match auto-settlement.
 
-Finds picks past kickoff+3h that are still `pending`, fetches their final score
-from API-Football, and marks them `won` / `lost` / `void`. Powers a real ROI
-tracker for subscribers and removes manual settle work for admin.
+Finds picks that are still `pending`, fetches final scores from API-Football or
+API-Basketball, and marks them `won` / `lost` / `void`. Powers a real ROI
+tracker for subscribers and removes most manual settle work for admin.
 """
 from __future__ import annotations
 
@@ -10,11 +10,8 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict
 
-from apifootball_service import (
-    find_fixture_by_teams,
-    is_configured,
-    settle_pick_result,
-)
+import apibasketball_service as basketball
+import apifootball_service as football
 
 logger = logging.getLogger("claudeodd.settler")
 
@@ -24,19 +21,20 @@ async def settle_pending_picks(db, max_age_days: int = 7) -> Dict:
 
     Returns: {checked, settled, still_pending, skipped, errors}
     """
-    if not is_configured():
+    if not football.is_configured() and not basketball.is_configured():
         return {"checked": 0, "settled": 0, "still_pending": 0, "skipped": 0,
-                "errors": ["API-Football not configured"]}
+                "errors": ["API-Football/API-Basketball not configured"]}
 
     now = datetime.now(timezone.utc)
     min_date = (now - timedelta(days=max_age_days)).strftime("%Y-%m-%d")
 
-    # Find pending picks whose kickoff is at least 105 min ago (football ≈ 90+15)
+    # Find pending picks whose kickoff has had enough time to finish.
     cursor = db.claudeodd_picks.find({
         "status": "pending",
-        "sport": "football",
+        "sport": {"$in": ["football", "basketball"]},
         "date": {"$gte": min_date},
     }, {"_id": 1, "id": 1, "match": 1, "league": 1, "market": 1,
+         "market_line": 1, "selection_label": 1, "sport": 1,
          "kickoff": 1, "odds": 1, "date": 1})
 
     stats = {"checked": 0, "settled": 0, "still_pending": 0,
@@ -49,7 +47,9 @@ async def settle_pending_picks(db, max_age_days: int = 7) -> Dict:
         except Exception:
             stats["skipped"] += 1
             continue
-        if (now - ko).total_seconds() < 105 * 60:
+        sport = p.get("sport")
+        wait_minutes = 180 if sport == "basketball" else 105
+        if (now - ko).total_seconds() < wait_minutes * 60:
             stats["still_pending"] += 1
             continue
 
@@ -61,13 +61,31 @@ async def settle_pending_picks(db, max_age_days: int = 7) -> Dict:
         league = p.get("league")
         fixture_date = p.get("date")
 
-        fixture = await find_fixture_by_teams(db, league, home, away, fixture_date)
-        if not fixture:
+        if sport == "football":
+            if not football.is_configured():
+                stats["skipped"] += 1
+                stats["details"].append(f"{match}: API-Football not configured")
+                continue
+            fixture = await football.find_fixture_by_teams(db, league, home, away, fixture_date)
+            if not fixture:
+                stats["skipped"] += 1
+                stats["details"].append(f"{match}: no API-Football fixture found")
+                continue
+            result = football.settle_pick_result(p["market"], fixture, home, away, p.get("market_line"))
+        elif sport == "basketball":
+            if not basketball.is_configured():
+                stats["skipped"] += 1
+                stats["details"].append(f"{match}: API-Basketball not configured")
+                continue
+            fixture = await basketball.find_fixture_by_teams(db, league, home, away, fixture_date)
+            if not fixture:
+                stats["skipped"] += 1
+                stats["details"].append(f"{match}: no API-Basketball game found")
+                continue
+            result = basketball.settle_pick_result(p["market"], fixture, p.get("market_line"))
+        else:
             stats["skipped"] += 1
-            stats["details"].append(f"{match}: no API-Football fixture found")
             continue
-
-        result = settle_pick_result(p["market"], fixture, home, away)
         if result is None:
             stats["still_pending"] += 1
             continue
